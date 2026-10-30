@@ -10,6 +10,8 @@ install -m 0644 "$B/images/talkchief-cowork-white.png" "$ROOT/images/jitsilogo.p
 install -m 0644 "$B/images/talkchief-icon-192.png"     "$ROOT/images/logo-deep-linking.png"
 install -m 0644 "$B/images/talkchief-icon-192.png"     "$ROOT/images/logo-deep-linking-mobile.png"
 install -m 0644 "$B/images/talkchief-icon-192.png"     "$ROOT/images/talkchief-icon-192.png"
+install -m 0644 "$B/images/talkchief-t.png"          "$ROOT/images/talkchief-t.png"
+install -m 0644 "$B/images/talkchief-light-bg.jpg"   "$ROOT/images/talkchief-light-bg.jpg"
 install -m 0644 "$B/images/apple-touch-icon.png"       "$ROOT/images/apple-touch-icon.png"
 install -m 0644 "$B/images/favicon.ico"                "$ROOT/favicon.ico"
 install -m 0644 "$B/images/favicon.ico"                "$ROOT/images/favicon.ico"

@@ -2,7 +2,7 @@
     "logoImageUrl": "https://meet.talkchief.io/images/talkchief-cowork-white.png",
     "logoClickUrl": "https://cowork.talkchief.io/",
     "backgroundColor": "#0B0819",
-    "premeetingBackground": "radial-gradient(1100px 620px at 12% 8%, rgba(109,70,221,0.42), rgba(109,70,221,0) 62%), radial-gradient(900px 560px at 92% 96%, rgba(15,147,243,0.20), rgba(15,147,243,0) 60%), linear-gradient(160deg, #120C2A 0%, #0B0819 55%, #07050F 100%)",
+    "premeetingBackground": "transparent",
     "customTheme": {
         "palette": {
             "action01": "#6D46DD",
