@@ -1,0 +1,1 @@
+RS256 public keys for prosody (named <sha256(kid)>.pem). Private key lives only on the Cowork server.

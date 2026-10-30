@@ -1,0 +1,27 @@
+# Rendered by scripts/install.sh (TURN_SECRET filled from .env TURN_CREDENTIALS).
+listening-port=3478
+listening-ip=46.225.31.248
+relay-ip=46.225.31.248
+external-ip=46.225.31.248
+min-port=49160
+max-port=49200
+realm=turn.talkchief.io
+use-auth-secret
+static-auth-secret=__TURN_SECRET__
+fingerprint
+no-cli
+tls-listening-port=5349
+cert=/etc/coturn/certs/turn.crt
+pkey=/etc/coturn/certs/turn.key
+no-tlsv1
+no-tlsv1_1
+no-dtls
+no-multicast-peers
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+allowed-peer-ip=46.225.31.248
+total-quota=300
+stale-nonce=600
+log-file=stdout

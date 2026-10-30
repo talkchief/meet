@@ -1,0 +1,3 @@
+/* TalkChief Cowork brand layer. Primary #6D46DD (Cowork purple). */
+:root { --tc-primary: #6D46DD; --tc-primary-hover: #5B37C7; }
+.watermark.leftwatermark { width: 220px; height: 56px; background-size: contain; background-repeat: no-repeat; }

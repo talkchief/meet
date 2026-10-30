@@ -1,0 +1,3 @@
+deploy/** text eol=lf
+deploy/**/*.png binary
+deploy/**/*.ico binary

@@ -1,0 +1,28 @@
+# TalkChief overrides on top of the pinned upstream docker-compose.yml.
+services:
+  web:
+    image: talkchief/meet-web:${JITSI_IMAGE_VERSION}-tc1
+    build:
+      context: ./web
+      args:
+        DJM_TAG: ${JITSI_IMAGE_VERSION}
+
+  # Internal-only key server for RS256 JWT verification (prosody fetches
+  # http://asap/asap/<sha256(kid)>.pem). Only public keys live here.
+  asap:
+    image: nginx:1.27-alpine
+    restart: ${RESTART_POLICY:-unless-stopped}
+    volumes:
+      - ./asap:/usr/share/nginx/html/asap:ro
+    networks:
+      meet.jitsi:
+
+  # TURN relay for clients behind restrictive NAT/firewalls. Ephemeral
+  # credentials are issued by prosody from the shared TURN_CREDENTIALS secret.
+  coturn:
+    image: coturn/coturn:4.6
+    restart: ${RESTART_POLICY:-unless-stopped}
+    network_mode: host
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+      - ./coturn/certs:/etc/coturn/certs:ro
