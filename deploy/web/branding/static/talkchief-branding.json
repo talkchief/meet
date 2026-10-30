@@ -32,7 +32,24 @@
             "success01": "#27b769",
             "success02": "#27b769",
             "warning01": "#ffbf00",
-            "warning02": "#ffbf00"
+            "warning02": "#ffbf00",
+            "chatBackground": "#0C243C",
+            "chatBackdrop": "#0C243C",
+            "chatEmptyText": "#9fb0bf",
+            "chatInputBackground": "#0a1f34",
+            "chatInputBorder": "#4e6275",
+            "chatLink": "#7fc4ff",
+            "chatMessageRemote": "#17344f",
+            "chatMessageLocal": "#1565A8",
+            "chatMessagePrivate": "#4B3596",
+            "chatMessageText": "#ffffff",
+            "chatPrivateNotice": "#d1dae1",
+            "chatRecipientContainer": "#123150",
+            "chatRecipientText": "#ffffff",
+            "chatRecipientCancelIcon": "#d1dae1",
+            "chatReplyIcon": "#d1dae1",
+            "chatSenderName": "#d1dae1",
+            "chatTimestamp": "#9fb0bf"
         }
     }
 }
