@@ -255,23 +255,29 @@ div:has(> div > .popover [class*="hangupMenu"]) {
 #notifications-container [class*="-actionsContainer"] button,
 #notifications-container [class*="-actionsContainer"] a { color: #0F93F3 !important; }
 
-/* ── Side strip of video tiles: above the control bar, starting at the top
-   (your own tile first, then everyone else), like Zoom. Stock Jitsi runs it
-   the full window height and pins short lists to the bottom, under the bar. */
-.filmstrip {
+/* ── Video area ends at the control bar ───────────────────────────────
+   The bar stays put (stock Jitsi hides it over the video), so the tile
+   grid and the side strip stop above it. talkchief-room.js measures the
+   bar into --tc-toolbar-h and tells Jitsi the video area is that much
+   shorter, so it sizes the tiles to fit instead of spilling off the top. */
+.tile-view .filmstrip,
+.vertical-filmstrip .filmstrip {
     height: auto !important;
-    bottom: 74px !important;
+    bottom: var(--tc-toolbar-h, 74px) !important;
 }
-#remoteVideos {
+
+/* Side strip of video tiles: starting at the top (your own tile first, then
+   everyone else), like Zoom. Stock Jitsi pins short lists to the bottom. */
+.vertical-filmstrip #remoteVideos {
     height: 100% !important;
     justify-content: flex-start !important;
 }
-#remoteVideos > .remote-videos {
+.vertical-filmstrip #remoteVideos > .remote-videos {
     height: auto !important;
     min-height: 0;
     flex: 1 1 auto;
 }
-.remote-videos.is-not-overflowing > div {
+.vertical-filmstrip .remote-videos.is-not-overflowing > div {
     top: 0 !important;
     bottom: auto !important;
 }

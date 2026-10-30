@@ -24,6 +24,54 @@
         });
     }, 1000);
 
+    // The control bar always shows (stock Jitsi hides it over the video), so
+    // Jitsi must lay the videos out in the space above it. Every Jitsi resize
+    // uses the full window height; correct it right after, and share the bar
+    // height with the stylesheet (--tc-toolbar-h).
+    function toolbarHeight() {
+        var bar = document.querySelector('#new-toolbox .toolbox-content-items');
+        return bar && bar.offsetHeight ? bar.offsetHeight : 0;
+    }
+    var fitting = false;
+    function fitAboveToolbar() {
+        var store = window.APP && window.APP.store;
+        if (!store || fitting) {
+            return;
+        }
+        var bar = toolbarHeight();
+        if (!bar) {
+            return;
+        }
+        document.documentElement.style.setProperty('--tc-toolbar-h', bar + 'px');
+        var ui = store.getState()['features/base/responsive-ui'] || {};
+        var wanted = window.innerHeight - bar;
+        if (ui.clientHeight === window.innerHeight && wanted > 0) {
+            fitting = true;
+            try {
+                store.dispatch({
+                    type: 'CLIENT_RESIZED',
+                    clientWidth: ui.clientWidth,
+                    clientHeight: wanted,
+                    videoSpaceWidth: ui.videoSpaceWidth
+                });
+            } finally {
+                fitting = false;
+            }
+        }
+    }
+    var fitWatched = false;
+    setInterval(function () {
+        var store = window.APP && window.APP.store;
+        if (!store) {
+            return;
+        }
+        if (!fitWatched) {
+            fitWatched = true;
+            store.subscribe(fitAboveToolbar);
+        }
+        fitAboveToolbar();
+    }, 1000);
+
     // Screen sharing and sound: browsers only include sound when it is asked
     // for in their share picker, so say whether this share carries sound and,
     // if not, how to include it.
