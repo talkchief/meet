@@ -88,11 +88,21 @@ body:has(.premeeting-screen) div.watermark.leftwatermark::after { color: #0C243C
 
 /* ── Top bar ─────────────────────────────────────────────────────────── */
 .details-container .subject-info-container {
-    padding: 4px 6px;
+    height: auto;
+    align-items: center;
+    gap: 2px;
+    padding: 3px 6px;
     border: 1px solid rgba(78, 98, 117, 0.45);
     border-radius: 10px;
     background: rgba(12, 36, 60, 0.85);
     backdrop-filter: blur(10px);
+}
+/* One pill: the title and timer sit on the pill itself, not on boxes of
+   their own (Jitsi gives each a dark background). */
+.details-container .subject-info-container > div:not([class*="recording"]),
+.details-container .subject-info-container > span {
+    margin: 0 !important;
+    background: transparent !important;
 }
 
 /* ── Control bar ─────────────────────────────────────────────────────── */
@@ -171,19 +181,16 @@ body:has(.premeeting-screen) div.watermark.leftwatermark::after { color: #0C243C
 #new-toolbox .toolbox-button[aria-label="More actions"]::after { content: "More"; }
 #new-toolbox .toolbox-button[aria-label="Leave the meeting"]::after { content: "Leave"; color: #fd4b46; font-weight: 600; }
 
-/* Muted microphone / stopped camera in red, Share in green, Leave in red. */
+/* Muted microphone / stopped camera in red, Leave in red. */
 #new-toolbox .toolbox-button[aria-label="Unmute microphone"] svg,
 #new-toolbox .toolbox-button[aria-label="Start camera"] svg { fill: #fd4b46 !important; }
-#new-toolbox .toolbox-button[aria-label^="Start sharing"] .toolbox-icon,
-#new-toolbox .toolbox-button[aria-label^="Stop sharing"] .toolbox-icon {
-    width: 32px !important;
-    height: 28px !important;
-    margin: 1px 0;
-    border-radius: 7px !important;
-    background: #27b769 !important;
-}
-#new-toolbox .toolbox-button[aria-label^="Start sharing"] svg,
-#new-toolbox .toolbox-button[aria-label^="Stop sharing"] svg { fill: #fff !important; }
+/* Share: a plain icon like the other buttons, in green; while sharing it
+   turns into a red "Stop Share". */
+#new-toolbox .toolbox-button[aria-label^="Start sharing"] svg { fill: #27b769 !important; }
+#new-toolbox .toolbox-button[aria-label^="Start sharing"]::after { color: #27b769; font-weight: 600; }
+#new-toolbox .toolbox-button[aria-label^="Stop sharing"] { background: rgba(253, 75, 70, 0.12); }
+#new-toolbox .toolbox-button[aria-label^="Stop sharing"] svg { fill: #fd4b46 !important; }
+#new-toolbox .toolbox-button[aria-label^="Stop sharing"]::after { color: #fd4b46; font-weight: 600; }
 #new-toolbox .toolbox-button .toolbox-icon.hangup-menu-button {
     width: 42px !important;
     height: 30px !important;
