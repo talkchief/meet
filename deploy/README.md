@@ -1,5 +1,7 @@
 # TalkChief Cowork Meetings: deployment
 
+The full handover (Cowork plugin, security model, operations, follow-ups and gotchas) is in `talkchief/talkchief_cowork` at `docs/talkchief-meetings.md`.
+
 The deployment of `meet.talkchief.io`: a self-hosted, fully rebranded Jitsi stack that serves TalkChief Cowork group calls and meetings.
 
 * Upstream: docker-jitsi-meet, pinned in `VERSION`.
