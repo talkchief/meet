@@ -99,7 +99,7 @@ body:has(.premeeting-screen) div.watermark.leftwatermark::after { color: #0C243C
 }
 /* One pill: the title and timer sit on the pill itself, not on boxes of
    their own (Jitsi gives each a dark background). */
-.details-container .subject-info-container > div:not([class*="recording"]),
+.details-container .subject-info-container [class*="-container"]:not([class*="recording"]),
 .details-container .subject-info-container > span {
     margin: 0 !important;
     background: transparent !important;
@@ -268,6 +268,7 @@ div:has(> div > .popover [class*="hangupMenu"]) {
 
 /* Side strip of video tiles: starting at the top (your own tile first, then
    everyone else), like Zoom. Stock Jitsi pins short lists to the bottom. */
+.vertical-filmstrip .filmstrip { top: 8px !important; }
 .vertical-filmstrip #remoteVideos {
     height: 100% !important;
     justify-content: flex-start !important;

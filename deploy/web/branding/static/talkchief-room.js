@@ -45,7 +45,7 @@
         document.documentElement.style.setProperty('--tc-toolbar-h', bar + 'px');
         var ui = store.getState()['features/base/responsive-ui'] || {};
         var wanted = window.innerHeight - bar;
-        if (ui.clientHeight === window.innerHeight && wanted > 0) {
+        if (wanted > 0 && ui.clientHeight !== wanted) {
             fitting = true;
             try {
                 store.dispatch({
