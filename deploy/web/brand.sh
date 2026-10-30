@@ -40,6 +40,8 @@ sed -i -E 's/"org\.jitsi\.meet"/"io.talkchief.cowork.meet"/g' "$ROOT/manifest.js
 
 # Brand CSS layered after the stock stylesheet.
 install -m 0644 "$B/talkchief.css" "$ROOT/css/talkchief.css"
-grep -q 'css/talkchief.css' "$ROOT/index.html" || \
-  sed -i 's#</head>#<link rel="stylesheet" href="css/talkchief.css"></head>#' "$ROOT/index.html"
+# Versioned link, so browsers pick up every change at once (no cache headers).
+CSS_V=$(sha256sum "$ROOT/css/talkchief.css" | cut -c1-12)
+sed -i -E 's#<link rel="stylesheet" href="css/talkchief.css[^"]*">##' "$ROOT/index.html"
+sed -i "s#</head>#<link rel=\"stylesheet\" href=\"css/talkchief.css?v=${CSS_V}\"></head>#" "$ROOT/index.html"
 echo "branding applied"
