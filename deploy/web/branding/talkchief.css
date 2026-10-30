@@ -184,13 +184,11 @@ body:has(.premeeting-screen) div.watermark.leftwatermark::after { color: #0C243C
 /* Muted microphone / stopped camera in red, Leave in red. */
 #new-toolbox .toolbox-button[aria-label="Unmute microphone"] svg,
 #new-toolbox .toolbox-button[aria-label="Start camera"] svg { fill: #fd4b46 !important; }
-/* Share: a plain icon like the other buttons, in green; while sharing it
-   turns into a red "Stop Share". */
-#new-toolbox .toolbox-button[aria-label^="Start sharing"] svg { fill: #27b769 !important; }
-#new-toolbox .toolbox-button[aria-label^="Start sharing"]::after { color: #27b769; font-weight: 600; }
-#new-toolbox .toolbox-button[aria-label^="Stop sharing"] { background: rgba(253, 75, 70, 0.12); }
-#new-toolbox .toolbox-button[aria-label^="Stop sharing"] svg { fill: #fd4b46 !important; }
-#new-toolbox .toolbox-button[aria-label^="Stop sharing"]::after { color: #fd4b46; font-weight: 600; }
+/* Share: a plain button like the others; green only while you are sharing
+   ("Stop Share"), so green always means your screen is being shared. */
+#new-toolbox .toolbox-button[aria-label^="Stop sharing"] { background: rgba(39, 183, 105, 0.16); }
+#new-toolbox .toolbox-button[aria-label^="Stop sharing"] svg { fill: #27b769 !important; }
+#new-toolbox .toolbox-button[aria-label^="Stop sharing"]::after { color: #27b769; font-weight: 600; }
 #new-toolbox .toolbox-button .toolbox-icon.hangup-menu-button {
     width: 42px !important;
     height: 30px !important;
