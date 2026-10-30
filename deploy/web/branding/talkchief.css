@@ -206,6 +206,13 @@ a.watermark.leftwatermark > div.watermark {
     opacity: 1;
 }
 
+/* Leave menu (Leave / End meeting for all): keep it inside the window now
+   that Leave sits at the right edge. */
+div:has(> div > .popover [class*="hangupMenu"]) {
+    right: 12px !important;
+    left: auto !important;
+}
+
 /* ── Video tiles ─────────────────────────────────────────────────────── */
 .videocontainer {
     overflow: hidden;
