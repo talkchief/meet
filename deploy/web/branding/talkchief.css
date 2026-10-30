@@ -288,6 +288,39 @@ div:has(> div > .popover [class*="hangupMenu"]) {
     border-radius: 12px !important;
 }
 
+/* ── Background settings without camera access (talkchief-room.js) ──── */
+[class*="-virtualBackgroundPreview"] { position: relative; }
+.tc-camera-blocked {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 16px 20px;
+    border-radius: 8px;
+    background: #0C243C;
+    color: #d1dae1;
+    text-align: center;
+    font: 400 13px/1.5 Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+.tc-camera-blocked strong { color: #fff; font-size: 15px; font-weight: 600; }
+.tc-camera-blocked p { max-width: 380px; margin: 0; }
+.tc-camera-blocked button {
+    margin-top: 4px;
+    padding: 8px 16px;
+    border: 0;
+    border-radius: 6px;
+    background: #0F93F3;
+    color: #fff;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+.tc-camera-blocked button:disabled { opacity: 0.6; cursor: default; }
+
 /* ── Narrow windows: icons only ──────────────────────────────────────── */
 @media (max-width: 720px) {
     #new-toolbox .toolbox-button { min-width: 44px; height: 48px !important; }
