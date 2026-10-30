@@ -54,8 +54,8 @@ chmod 644 "$DEST"/asap/*.pem
 
 # 5. Config dirs, custom web config, coturn.
 CFG=$(grep -E '^CONFIG=' "$DEST/.env" | tail -1 | cut -d= -f2)
-prosody_cfg_sum() { cat "$CFG"/prosody/prosody-plugins-custom/*.lua 2>/dev/null | sha256sum; }
-web_cfg_sum() { cat "$CFG"/web/custom-*.js "$CFG"/web/nginx/custom-meet.conf "$CFG"/web/keys/cert.crt 2>/dev/null | sha256sum; }
+prosody_cfg_sum() { { cat "$CFG"/prosody/prosody-plugins-custom/*.lua 2>/dev/null || true; } | sha256sum; }
+web_cfg_sum() { { cat "$CFG"/web/custom-*.js "$CFG"/web/nginx/custom-meet.conf "$CFG"/web/keys/cert.crt 2>/dev/null || true; } | sha256sum; }
 before=$(web_cfg_sum)
 before_prosody=$(prosody_cfg_sum)
 mkdir -p "$CFG"/{web/keys,web/custom-ca,storage/web,storage/prosody,storage/transcripts,tmp/web-load-test,prosody/config,prosody/prosody-plugins-custom,prosody/custom-ca,jicofo/custom-ca,jvb/custom-ca,jigasi,jibri}
