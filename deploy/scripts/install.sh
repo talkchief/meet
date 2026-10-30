@@ -70,6 +70,9 @@ before=$(web_cfg_sum)
 before_prosody=$(prosody_cfg_sum)
 mkdir -p "$CFG"/{web/keys,web/custom-ca,storage/web,storage/prosody,storage/transcripts,tmp/web-load-test,prosody/config,prosody/prosody-plugins-custom,prosody/custom-ca,jicofo/custom-ca,jvb/custom-ca,jigasi,jibri}
 cp "$HERE/web/custom-config.js" "$HERE/web/custom-interface_config.js" "$CFG/web/"
+# Versioned branding URL, so browsers pick up palette changes at once.
+BRAND_V=$(sha256sum "$HERE/web/branding/static/talkchief-branding.json" | cut -c1-12)
+sed -i "s#static/talkchief-branding.json'#static/talkchief-branding.json?v=${BRAND_V}'#" "$CFG/web/custom-config.js"
 mkdir -p "$CFG/web/nginx" && cp "$HERE/web/custom-meet.conf" "$CFG/web/nginx/custom-meet.conf"
 cp "$HERE"/prosody/plugins/*.lua "$CFG/prosody/prosody-plugins-custom/"
 # The Jitsi images run as uid/gid 1000 (s6); every host volume, including the
