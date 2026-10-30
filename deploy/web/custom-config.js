@@ -13,8 +13,14 @@ config.whiteboard = { enabled: false };
 config.liveStreaming = { enabled: false };
 config.fileRecordingsEnabled = false;
 config.welcomePage = { disabled: true };
-// Invitations, guests and scheduling are handled by Cowork, not the meeting UI.
-config.disableInviteFunctions = true;
+// "Invite people" (like Teams): copy the meeting link, or search the workspace
+// and invite members, who get the card by DM and are rung in Cowork. Search
+// and invites go to Cowork through custom-meet.conf, authorised by the
+// member's meeting token; guests have no token and cannot search.
+config.disableInviteFunctions = false;
+config.peopleSearchUrl = 'https://meet.talkchief.io/talkchief-api/people';
+config.inviteServiceUrl = 'https://meet.talkchief.io/talkchief-api/invite';
+config.peopleSearchQueryTypes = [ 'user' ];
 // Names come from the Cowork-issued token (members) or the guest join page.
 config.readOnlyName = true;
 config.disableProfile = true;
@@ -23,6 +29,10 @@ config.prejoinConfig = Object.assign({}, config.prejoinConfig, {
     hideExtraJoinButtons: [ 'no-audio', 'by-phone' ]
 });
 config.lobby = { autoKnock: true, enableChat: true };
+// Nobody removes people from a meeting (no "kick out"); the host still mutes
+// and moderates. Only the host is a moderator (Cowork signs everyone else as
+// a participant).
+config.remoteVideoMenu = Object.assign({}, config.remoteVideoMenu, { disableKick: true });
 config.securityUi = { hideLobbyButton: false, disableLobbyPassword: true };
 // Keep peer-to-peer STUN on our own TURN host instead of the public Jitsi relay.
 config.p2p = Object.assign({}, config.p2p, {
@@ -39,7 +49,7 @@ config.deploymentUrls = {
     downloadAppsUrl: 'https://talkchief.io/'
 };
 config.toolbarButtons = [
-    'camera', 'chat', 'closedcaptions', 'desktop', 'filmstrip', 'fullscreen',
+    'camera', 'chat', 'closedcaptions', 'desktop', 'filmstrip', 'fullscreen', 'invite',
     'hangup', 'help', 'highlight', 'microphone', 'noisesuppression',
     'participants-pane', 'raisehand', 'reactions', 'security', 'select-background',
     'settings', 'shareaudio', 'stats', 'tileview', 'toggle-camera', 'videoquality',
@@ -48,7 +58,7 @@ config.toolbarButtons = [
 // Brand theme (colours, backgrounds, logo) through Jitsi's dynamic-branding hook.
 config.dynamicBrandingUrl = 'https://meet.talkchief.io/static/talkchief-branding.json';
 // No username/password dialog: anyone without a Cowork token lands on a branded page.
-config.tokenAuthUrl = 'https://meet.talkchief.io/static/talkchief-access.html?room={room}';
+config.tokenAuthUrl = 'https://meet.talkchief.io/static/talkchief-access.html?tenant={tenant}&room={room}';
 config.tokenAuthUrlAutoRedirect = true;
 // Modern meeting-room layout (styles in branding/talkchief.css): the control
 // bar stays put like in other meeting apps, and the top bar shows the meeting
