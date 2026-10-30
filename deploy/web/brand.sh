@@ -46,4 +46,9 @@ install -m 0644 "$B/talkchief.css" "$ROOT/css/talkchief.css"
 CSS_V=$(sha256sum "$ROOT/css/talkchief.css" | cut -c1-12)
 sed -i -E 's#<link rel="stylesheet" href="css/talkchief.css[^"]*">##' "$ROOT/index.html"
 sed -i "s#</head>#<link rel=\"stylesheet\" href=\"css/talkchief.css?v=${CSS_V}\"></head>#" "$ROOT/index.html"
+# Room behaviours (static/talkchief-room.js), loaded at the end of the page.
+install -m 0644 "$B/static/talkchief-room.js" "$ROOT/static/talkchief-room.js"
+ROOM_V=$(sha256sum "$ROOT/static/talkchief-room.js" | cut -c1-12)
+sed -i -E 's#<script src="static/talkchief-room.js[^"]*"></script>##' "$ROOT/index.html"
+sed -i "s#</body>#<script src=\"static/talkchief-room.js?v=${ROOM_V}\"></script></body>#" "$ROOT/index.html"
 echo "branding applied"
