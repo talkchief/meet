@@ -24,6 +24,10 @@ tar -xzf "$tgz" -C "$DEST" --strip-components=1
 
 # 2. TalkChief overlay.
 cp "$HERE/docker-compose.override.yml" "$DEST/"
+# Internal room-events relay config (a stray directory here, left by a start
+# before this file existed, is replaced).
+[ -d "$DEST/events/events.conf" ] && rmdir "$DEST/events/events.conf"
+install -d -m 755 "$DEST/events" && install -m 644 "$HERE/events/events.conf" "$DEST/events/events.conf"
 rm -rf "$DEST/web-tc" && cp -r "$HERE/web" "$DEST/web-tc"
 sed -i 's#context: ./web#context: ./web-tc#' "$DEST/docker-compose.override.yml"
 mkdir -p "$DEST/asap" "$DEST/coturn"
