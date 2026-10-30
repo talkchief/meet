@@ -242,6 +242,34 @@
         }
     }, 1000);
 
+    // A room without a title (nobody set one: guests who arrived before the
+    // host, or a plain room link) would show its random id as words
+    // ("G Dw 8 Ho 4 ..."). Show a plain name instead until the host's
+    // title arrives.
+    var titled = false;
+    setInterval(function () {
+        var store = window.APP && window.APP.store;
+        if (titled || !store || !(window.APP.conference && window.APP.conference.isJoined && window.APP.conference.isJoined())) {
+            return;
+        }
+        var c = store.getState()['features/base/conference'] || {};
+        if (c.localSubject || c.subject || c.pendingSubjectChange) {
+            titled = true;
+            return;
+        }
+        titled = true;
+        store.dispatch({ type: 'CONFERENCE_LOCAL_SUBJECT_CHANGED', localSubject: 'TalkChief Cowork meeting' });
+        // The host's title replaces it when it arrives (subject wins over
+        // this placeholder only once the placeholder is cleared).
+        var unsubscribe = store.subscribe(function () {
+            var now = store.getState()['features/base/conference'] || {};
+            if (now.subject && now.localSubject === 'TalkChief Cowork meeting') {
+                unsubscribe();
+                store.dispatch({ type: 'CONFERENCE_LOCAL_SUBJECT_CHANGED', localSubject: '' });
+            }
+        });
+    }, 2000);
+
     // Screen sharing and sound: browsers only include sound when it is asked
     // for in their share picker, so say whether this share carries sound and,
     // if not, how to include it.
