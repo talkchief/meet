@@ -169,6 +169,70 @@
         }
     }, 500);
 
+    // A chime when someone else starts sharing their screen, like Zoom. Not
+    // for your own share, nor for shares already running when you join.
+    var seenShares = null;
+    function chime() {
+        try {
+            var Ctx = window.AudioContext || window.webkitAudioContext;
+            if (!Ctx) {
+                return;
+            }
+            var ctx = chime.ctx || (chime.ctx = new Ctx());
+            if (ctx.state === 'suspended') {
+                ctx.resume();
+            }
+            [ 659.25, 880 ].forEach(function (freq, i) {
+                var start = ctx.currentTime + i * 0.16;
+                var osc = ctx.createOscillator();
+                var gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.value = freq;
+                gain.gain.setValueAtTime(0.0001, start);
+                gain.gain.exponentialRampToValueAtTime(0.18, start + 0.02);
+                gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.32);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start(start);
+                osc.stop(start + 0.35);
+            });
+        } catch (e) {
+            // sound is a nicety
+        }
+    }
+    function watchShares() {
+        var store = window.APP && window.APP.store;
+        if (!store) {
+            return;
+        }
+        var tracks = store.getState()['features/base/tracks'] || [];
+        var now = {};
+        tracks.forEach(function (t) {
+            if (!t.local && t.mediaType === 'video' && t.videoType === 'desktop' && t.participantId) {
+                now[t.participantId] = true;
+            }
+        });
+        if (seenShares) {
+            var started = Object.keys(now).some(function (id) { return !seenShares[id]; });
+            if (started) {
+                chime();
+            }
+        }
+        seenShares = now;
+    }
+    var sharesWatched = false;
+    setInterval(function () {
+        var store = window.APP && window.APP.store;
+        if (!store || sharesWatched) {
+            return;
+        }
+        if (window.APP.conference && window.APP.conference.isJoined && window.APP.conference.isJoined()) {
+            sharesWatched = true;
+            watchShares();
+            store.subscribe(watchShares);
+        }
+    }, 1000);
+
     // Screen sharing and sound: browsers only include sound when it is asked
     // for in their share picker, so say whether this share carries sound and,
     // if not, how to include it.

@@ -71,3 +71,10 @@ config.conferenceInfo = {
     alwaysVisible: [ 'recording', 'raised-hands-count', 'subject', 'conference-timer', 'participants-count' ],
     autoHide: []
 };
+
+// Bandwidth, like Zoom: video for the 25 most recent speakers (a gallery
+// page), screen sharing up to 15 fps (static screens stay cheap with AV1 and
+// VP9), and no audio packets while someone is silent or muted (Opus DTX).
+config.channelLastN = 25;
+config.desktopSharingFrameRate = { min: 5, max: 15 };
+config.audioQuality = Object.assign({}, config.audioQuality, { enableOpusDtx: true });
