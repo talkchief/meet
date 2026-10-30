@@ -1,6 +1,6 @@
 # TalkChief Cowork Meetings: deployment
 
-The full handover (Cowork plugin, security model, operations, follow-ups and gotchas) is in `talkchief/talkchief_cowork` at `docs/talkchief-meetings.md`.
+The full handover (Cowork core integration, security model, operations, follow-ups and gotchas) is in `talkchief/talkchief_cowork` at `docs/talkchief-meetings.md`.
 
 The deployment of `meet.talkchief.io`: a self-hosted, fully rebranded Jitsi stack that serves TalkChief Cowork group calls and meetings.
 
@@ -12,7 +12,7 @@ The deployment of `meet.talkchief.io`: a self-hosted, fully rebranded Jitsi stac
 | Path | What |
 |---|---|
 | `.env` | upstream example, generated XMPP secrets, these overrides and `TURN_CREDENTIALS` (0600) |
-| `jwt/private.pem` | RS256 signing key (0600). Its only consumer is the Cowork meetings plugin. |
+| `jwt/private.pem` | RS256 signing key (0600). Its only consumer is Cowork (core server, `PluginSettings.Plugins["com.talkchief.meetings"].jwtprivatekey`). |
 | `asap/<sha256(kid)>.pem` | public key, served on the **internal** network only (`http://asap/asap`) |
 | `config/web/keys/cert.{crt,key}` | TalkChief wildcard certificate for `meet.talkchief.io` |
 | `certs/turn.{crt,key}` | the same wildcard certificate, used by coturn for TURNS on 5349 |
