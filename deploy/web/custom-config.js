@@ -45,3 +45,8 @@ config.toolbarButtons = [
     'settings', 'shareaudio', 'stats', 'tileview', 'toggle-camera', 'videoquality',
     'breakout-rooms', 'polls', 'mute-everyone', 'mute-video-everyone'
 ];
+// Brand theme (colours, backgrounds, logo) through Jitsi's dynamic-branding hook.
+config.dynamicBrandingUrl = 'https://meet.talkchief.io/static/talkchief-branding.json';
+// No username/password dialog: anyone without a Cowork token lands on a branded page.
+config.tokenAuthUrl = 'https://meet.talkchief.io/static/talkchief-access.html?room={room}';
+config.tokenAuthUrlAutoRedirect = true;

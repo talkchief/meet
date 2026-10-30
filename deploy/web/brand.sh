@@ -17,6 +17,8 @@ cp "$B/images/talkchief-cowork.svg" "$ROOT/images/watermark.svg"
 # favicon.svg is referenced by index.html; replace it with an SVG wrapper of the PNG icon.
 printf '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><image href="images/talkchief-icon-192.png" width="192" height="192"/></svg>\n' > "$ROOT/images/favicon.svg"
 install -m 0644 "$B/title.html" "$ROOT/title.html"
+install -m 0644 "$B/static/talkchief-branding.json" "$ROOT/static/talkchief-branding.json"
+install -m 0644 "$B/static/talkchief-access.html"  "$ROOT/static/talkchief-access.html"
 
 # Visible wording: lang bundles, static pages, PWA manifest.
 for f in "$ROOT"/lang/*.json "$ROOT"/manifest.json; do

@@ -1,0 +1,23 @@
+{
+    "logoImageUrl": "https://meet.talkchief.io/images/talkchief-cowork-white.png",
+    "logoClickUrl": "https://cowork.talkchief.io/",
+    "backgroundColor": "#0B0819",
+    "premeetingBackground": "radial-gradient(1100px 620px at 12% 8%, rgba(109,70,221,0.42), rgba(109,70,221,0) 62%), radial-gradient(900px 560px at 92% 96%, rgba(15,147,243,0.20), rgba(15,147,243,0) 60%), linear-gradient(160deg, #120C2A 0%, #0B0819 55%, #07050F 100%)",
+    "customTheme": {
+        "palette": {
+            "action01": "#6D46DD",
+            "action01Hover": "#7D5AE6",
+            "action01Active": "#5B37C7",
+            "link01": "#A48BF2",
+            "link01Hover": "#BBA8F6",
+            "link01Active": "#8E72EC",
+            "focus01": "#9B80F0",
+            "uiBackground": "#0E0A1F",
+            "ui01": "#16112D",
+            "ui02": "#201A3F",
+            "ui03": "#2C2454",
+            "field01": "#1C1636",
+            "disabled01": "#3A3260"
+        }
+    }
+}
