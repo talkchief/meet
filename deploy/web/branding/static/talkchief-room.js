@@ -205,13 +205,22 @@
         if (!store) {
             return;
         }
-        var tracks = store.getState()['features/base/tracks'] || [];
+        // A share is its own track kind ('screenshare') with multi-stream on,
+        // and Jitsi lists remote shares in the video layout state.
+        var state = store.getState();
+        var layout = state['features/video-layout'] || {};
         var now = {};
-        tracks.forEach(function (t) {
-            if (!t.local && t.mediaType === 'video' && t.videoType === 'desktop' && t.participantId) {
-                now[t.participantId] = true;
-            }
-        });
+        if (Array.isArray(layout.remoteScreenShares)) {
+            layout.remoteScreenShares.forEach(function (id) {
+                now[id] = true;
+            });
+        } else {
+            (state['features/base/tracks'] || []).forEach(function (t) {
+                if (!t.local && t.videoType === 'desktop' && t.participantId) {
+                    now[t.participantId] = true;
+                }
+            });
+        }
         if (seenShares) {
             var started = Object.keys(now).some(function (id) { return !seenShares[id]; });
             if (started) {
@@ -253,7 +262,7 @@
         var state = store.getState();
         var tracks = state['features/base/tracks'] || [];
         var now = tracks.some(function (t) {
-            return t.local && t.mediaType === 'video' && t.videoType === 'desktop';
+            return t.local && t.videoType === 'desktop';
         });
         if (now && !sharing) {
             setTimeout(function () {
