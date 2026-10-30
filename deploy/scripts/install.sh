@@ -54,11 +54,14 @@ chmod 644 "$DEST"/asap/*.pem
 
 # 5. Config dirs, custom web config, coturn.
 CFG=$(grep -E '^CONFIG=' "$DEST/.env" | tail -1 | cut -d= -f2)
+prosody_cfg_sum() { cat "$CFG"/prosody/prosody-plugins-custom/*.lua 2>/dev/null | sha256sum; }
 web_cfg_sum() { cat "$CFG"/web/custom-*.js "$CFG"/web/nginx/custom-meet.conf "$CFG"/web/keys/cert.crt 2>/dev/null | sha256sum; }
 before=$(web_cfg_sum)
+before_prosody=$(prosody_cfg_sum)
 mkdir -p "$CFG"/{web/keys,web/custom-ca,storage/web,storage/prosody,storage/transcripts,tmp/web-load-test,prosody/config,prosody/prosody-plugins-custom,prosody/custom-ca,jicofo/custom-ca,jvb/custom-ca,jigasi,jibri}
 cp "$HERE/web/custom-config.js" "$HERE/web/custom-interface_config.js" "$CFG/web/"
 mkdir -p "$CFG/web/nginx" && cp "$HERE/web/custom-meet.conf" "$CFG/web/nginx/custom-meet.conf"
+cp "$HERE"/prosody/plugins/*.lua "$CFG/prosody/prosody-plugins-custom/"
 # The Jitsi images run as uid/gid 1000 (s6); every host volume, including the
 # TLS key in web/keys, must belong to that user.
 chown -R 1000:1000 "$CFG"
@@ -81,5 +84,10 @@ docker compose build web
 docker compose up -d --remove-orphans
 # Config files live on a volume, so compose does not notice when they change.
 # A web restart briefly drops signalling (clients reconnect); only do it when needed.
-if [ "$before" != "$(web_cfg_sum)" ]; then docker compose restart web; fi
+if [ "$before_prosody" != "$(prosody_cfg_sum)" ]; then
+  # Prosody restarts drop every live conference; jicofo/jvb/web reconnect to it.
+  docker compose up -d --force-recreate prosody jicofo jvb web
+elif [ "$before" != "$(web_cfg_sum)" ]; then
+  docker compose restart web
+fi
 docker compose ps
