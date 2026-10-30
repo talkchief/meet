@@ -288,6 +288,11 @@ div:has(> div > .popover [class*="hangupMenu"]) {
     overflow: hidden;
     border-radius: 12px !important;
 }
+/* The main stage shares the class; it fills the window edge to edge, so its
+   corners stay square (rounded, they showed black wedges under the title bar). */
+#largeVideoContainer.videocontainer {
+    border-radius: 0 !important;
+}
 
 /* ── Background settings without camera access (talkchief-room.js) ──── */
 [class*="-virtualBackgroundPreview"] { position: relative; }
