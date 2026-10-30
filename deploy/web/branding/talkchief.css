@@ -7,41 +7,43 @@
    simply shows its icon. */
 
 /* ── Logo: the Cowork purple "T" and "Talkchief Cowork", as on the Cowork
-   login page (navy on light pages, white in the meeting room). ─────────── */
+   login page: navy on the join screen, a quiet white mark in the meeting.
+   Jitsi draws the logo as div.watermark (inside an <a> only when a link is
+   configured; none is), with the logo image as an inline background. ── */
 a.watermark.leftwatermark {
-    display: flex !important;
+    display: block !important;
     width: auto !important;
-    height: 40px !important;
-    align-items: center;
-    margin: 12px 0 0 18px !important;
+    height: auto !important;
+    margin: 0 !important;
     background-image: none !important;
-    gap: 9px;
-    text-decoration: none !important;
-}
-a.watermark.leftwatermark::after {
-    color: #fff;
-    content: "Talkchief Cowork";
-    font: 600 18px/1 Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
-    white-space: nowrap;
-}
-body:has(.premeeting-screen) a.watermark.leftwatermark::after { color: #0C243C; }
-/* In the meeting the logo is a quiet mark, not a link. */
-a.watermark.leftwatermark {
-    cursor: default;
-    opacity: 0.55;
     pointer-events: none;
 }
-body:has(.premeeting-screen) a.watermark.leftwatermark { opacity: 1; }
-a.watermark.leftwatermark > div.watermark {
+div.watermark.leftwatermark {
+    position: relative !important;
+    display: block !important;
     width: 30px !important;
-    min-width: 30px;
     height: 30px !important;
-    margin: 0 !important;
+    margin: 16px 0 0 20px !important;
     background-image: url("../images/talkchief-t.png") !important;
     background-position: center !important;
     background-repeat: no-repeat !important;
     background-size: contain !important;
+    cursor: default;
+    opacity: 0.55;
+    pointer-events: none;
 }
+div.watermark.leftwatermark::after {
+    position: absolute;
+    top: 50%;
+    left: 39px;
+    color: #fff;
+    content: "Talkchief Cowork";
+    font: 600 18px/1 Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
+    transform: translateY(-50%);
+    white-space: nowrap;
+}
+body:has(.premeeting-screen) div.watermark.leftwatermark { opacity: 1; }
+body:has(.premeeting-screen) div.watermark.leftwatermark::after { color: #0C243C; }
 
 /* ── Join screen: light, like the Cowork login ──────────────────────── */
 .premeeting-screen {
