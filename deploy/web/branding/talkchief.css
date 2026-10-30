@@ -223,6 +223,31 @@ div:has(> div > .popover [class*="hangupMenu"]) {
     left: auto !important;
 }
 
+/* ── Notifications: palette cards (navy, white title, one accent colour per
+   kind) instead of the stock slate box with mixed accents. ─────────────── */
+#notifications-container [role="status"],
+#notifications-container [role="alert"] {
+    overflow: hidden;
+    border: 1px solid rgba(78, 98, 117, 0.6) !important;
+    border-radius: 10px !important;
+    background: #12304f !important;
+    box-shadow: 0 12px 32px rgba(6, 20, 35, 0.45) !important;
+}
+#notifications-container [class*="-ribbon"] { background: #0F93F3 !important; }
+#notifications-container [class*="-ribbon"].success { background: #27b769 !important; }
+#notifications-container [class*="-ribbon"].error { background: #fd4b46 !important; }
+#notifications-container [class*="-ribbon"].warning { background: #ffbf00 !important; }
+#notifications-container [class*="-title"] { color: #fff !important; }
+#notifications-container [class*="-description"],
+#notifications-container [class*="-description"] * { color: #d1dae1 !important; }
+#notifications-container [class*="-content"] > div:first-child svg { fill: #0F93F3 !important; }
+#notifications-container [class*="-ribbon"].success + [class*="-content"] > div:first-child svg { fill: #27b769 !important; }
+#notifications-container [class*="-ribbon"].error + [class*="-content"] > div:first-child svg { fill: #fd4b46 !important; }
+#notifications-container [class*="-ribbon"].warning + [class*="-content"] > div:first-child svg { fill: #ffbf00 !important; }
+#notifications-container [class*="-closeIcon"] svg { fill: #d1dae1 !important; }
+#notifications-container [class*="-actionsContainer"] button,
+#notifications-container [class*="-actionsContainer"] a { color: #0F93F3 !important; }
+
 /* ── Video tiles ─────────────────────────────────────────────────────── */
 .videocontainer {
     overflow: hidden;
