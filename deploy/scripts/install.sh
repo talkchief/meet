@@ -51,6 +51,12 @@ if [ ! -f "$DEST/jwt/private.pem" ]; then
 fi
 openssl pkey -in "$DEST/jwt/private.pem" -pubout -out "$DEST/asap/$(printf %s "$KID" | sha256sum | cut -d' ' -f1).pem"
 chmod 644 "$DEST"/asap/*.pem
+# Room-events HMAC key (mod_talkchief_room_events): derived from the signing
+# key, which Cowork also holds, so nothing extra is copied between servers.
+# Cowork computes the same value (EventsSecretFromKey).
+EVS=$(python3 -c 'import hashlib,sys; print(hashlib.sha256(b"talkchief-meet-events-v1:" + open(sys.argv[1], "rb").read().strip()).hexdigest())' "$DEST/jwt/private.pem")
+sed -i '/^TALKCHIEF_EVENTS_SECRET=/d' "$DEST/.env"
+echo "TALKCHIEF_EVENTS_SECRET=$EVS" >> "$DEST/.env"
 
 # 5. Config dirs, custom web config, coturn.
 CFG=$(grep -E '^CONFIG=' "$DEST/.env" | tail -1 | cut -d= -f2)

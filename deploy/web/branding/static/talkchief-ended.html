@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meeting ended · TalkChief Cowork</title>
+<link rel="icon" href="/favicon.ico">
+<style>
+  :root { --bg:#0B0819; --card:rgba(22,17,45,.82); --line:rgba(255,255,255,.08); --text:#F4F2FB; --muted:#A9A3C4; --primary:#6D46DD; --primary-hover:#7D5AE6; }
+  * { box-sizing:border-box; }
+  html,body { height:100%; margin:0; }
+  body {
+    font-family: Inter, "Segoe UI", system-ui, -apple-system, sans-serif; color:var(--text);
+    background:
+      radial-gradient(1100px 620px at 12% 8%, rgba(109,70,221,.42), transparent 62%),
+      radial-gradient(900px 560px at 92% 96%, rgba(15,147,243,.20), transparent 60%),
+      linear-gradient(160deg,#120C2A 0%,#0B0819 55%,#07050F 100%);
+    display:flex; align-items:center; justify-content:center; padding:24px;
+  }
+  .card { width:100%; max-width:440px; background:var(--card); border:1px solid var(--line); border-radius:20px;
+    padding:40px 36px 32px; backdrop-filter:blur(14px); box-shadow:0 30px 80px rgba(0,0,0,.45); text-align:center; }
+  .logo { height:52px; margin-bottom:28px; }
+  .badge { width:56px; height:56px; margin:0 auto 20px; border-radius:16px; display:grid; place-items:center;
+    background:rgba(109,70,221,.16); border:1px solid rgba(109,70,221,.35); }
+  h1 { font-size:22px; line-height:1.3; margin:0 0 10px; font-weight:650; letter-spacing:-.01em; }
+  p { font-size:15px; line-height:1.6; color:var(--muted); margin:0 0 28px; }
+  a.btn { display:block; text-decoration:none; color:#fff; background:var(--primary); padding:13px 18px; border-radius:12px;
+    font-weight:600; font-size:15px; transition:background .15s ease, transform .15s ease; }
+  a.btn:hover { background:var(--primary-hover); transform:translateY(-1px); }
+  .foot { margin-top:22px; font-size:12.5px; color:var(--muted); }
+</style>
+</head>
+<body>
+  <main class="card">
+    <img class="logo" src="/images/talkchief-cowork-white.png" alt="TalkChief Cowork">
+    <div class="badge" aria-hidden="true">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#A48BF2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 8.5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2z"/><path d="m15.5 11 4-2.5v7l-4-2.5"/><path d="M3 3l18 18"/></svg>
+    </div>
+    <h1>Meeting ended</h1>
+    <p>You have left the meeting. Thanks for meeting with TalkChief Cowork.</p>
+    <a class="btn" href="/" id="back">Back to TalkChief Cowork</a>
+    <div class="foot" id="foot">Returning to TalkChief Cowork in <span id="sec">15</span> s</div>
+  </main>
+  <script>
+    // "/" redirects to Cowork in a browser; the Cowork desktop app closes its
+    // meeting window when the meeting service navigates there.
+    (function () {
+      var left = 15, el = document.getElementById('sec');
+      var timer = setInterval(function () {
+        left -= 1;
+        if (el) { el.textContent = String(left); }
+        if (left <= 0) { clearInterval(timer); location.href = '/'; }
+      }, 1000);
+    })();
+  </script>
+</body>
+</html>

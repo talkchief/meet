@@ -50,3 +50,14 @@ config.dynamicBrandingUrl = 'https://meet.talkchief.io/static/talkchief-branding
 // No username/password dialog: anyone without a Cowork token lands on a branded page.
 config.tokenAuthUrl = 'https://meet.talkchief.io/static/talkchief-access.html?room={room}';
 config.tokenAuthUrlAutoRedirect = true;
+// Modern meeting-room layout (styles in branding/talkchief.css): the control
+// bar stays put like in other meeting apps, and the top bar shows the meeting
+// title, timer and participant count.
+config.toolbarConfig = Object.assign({}, config.toolbarConfig, {
+    alwaysVisible: true,
+    autoHideWhileChatIsOpen: false
+});
+config.conferenceInfo = {
+    alwaysVisible: [ 'recording', 'raised-hands-count', 'subject', 'conference-timer', 'participants-count' ],
+    autoHide: []
+};

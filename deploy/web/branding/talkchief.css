@@ -1,11 +1,157 @@
 /* TalkChief Cowork brand layer. Primary #6D46DD (Cowork purple). Colours
-   mostly come from the dynamic-branding palette; this file only fixes layout. */
+   mostly come from the dynamic-branding palette; this file shapes the meeting
+   room after modern meeting apps (Zoom Workplace style): a slim top bar, a
+   full-width control bar with labelled buttons, simple device carets and a
+   red Leave on the right, and rounded video tiles. Labels key off each
+   button's aria-label, so a button with an unknown label (another language)
+   simply shows its icon. */
+
+/* ── Top bar ─────────────────────────────────────────────────────────── */
 .watermark.leftwatermark {
-    width: 196px !important;
-    height: 52px !important;
-    max-width: 40vw;
+    width: 150px !important;
+    height: 40px !important;
+    max-width: 34vw;
     background-size: contain !important;
     background-position: left center !important;
     background-repeat: no-repeat !important;
-    margin: 20px 0 0 24px;
+    margin: 12px 0 0 18px;
+}
+.details-container .subject-info-container {
+    padding: 4px 6px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 10px;
+    background: rgba(13, 10, 28, 0.78);
+    backdrop-filter: blur(10px);
+}
+
+/* ── Control bar ─────────────────────────────────────────────────────── */
+#new-toolbox {
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+}
+#new-toolbox .toolbox-content,
+#new-toolbox .toolbox-content-wrapper {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+#new-toolbox .toolbox-content-items {
+    display: flex !important;
+    width: 100% !important;
+    max-width: none !important;
+    box-sizing: border-box;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 6px 14px 8px !important;
+    border-radius: 0 !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(13, 10, 28, 0.97) !important;
+    box-shadow: none !important;
+}
+/* Mute and video on the left, Leave on the right, the rest centred. */
+#new-toolbox .toolbox-content-items > .video-preview { margin-right: auto; }
+#new-toolbox .toolbox-content-items > :last-child { margin-left: auto; }
+
+#new-toolbox .toolbox-button {
+    display: flex !important;
+    width: auto !important;
+    min-width: 66px;
+    height: 58px !important;
+    box-sizing: border-box;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0 6px;
+    border-radius: 10px;
+    transition: background 0.15s;
+}
+#new-toolbox .toolbox-button:hover { background: rgba(255, 255, 255, 0.07); }
+#new-toolbox .toolbox-button .toolbox-icon {
+    width: 34px !important;
+    height: 30px !important;
+    border-radius: 8px !important;
+    background: transparent !important;
+}
+#new-toolbox .toolbox-button .toolbox-icon:hover { background: transparent !important; }
+#new-toolbox .toolbox-button::after {
+    margin-top: 3px;
+    color: #DCD7F0;
+    font: 500 11.5px/1.25 Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+}
+#new-toolbox .toolbox-button[aria-label="Unmute microphone"]::after { content: "Unmute"; }
+#new-toolbox .toolbox-button[aria-label="Mute microphone"]::after { content: "Mute"; }
+#new-toolbox .toolbox-button[aria-label="Start camera"]::after { content: "Start Video"; }
+#new-toolbox .toolbox-button[aria-label="Stop camera"]::after { content: "Stop Video"; }
+#new-toolbox .toolbox-button[aria-label^="Start sharing"]::after { content: "Share"; }
+#new-toolbox .toolbox-button[aria-label^="Stop sharing"]::after { content: "Stop Share"; }
+#new-toolbox .toolbox-button[aria-label$="chat"]::after { content: "Chat"; }
+#new-toolbox .toolbox-button[aria-label="Raise your hand"]::after { content: "Raise Hand"; }
+#new-toolbox .toolbox-button[aria-label="Lower your hand"]::after { content: "Lower Hand"; }
+#new-toolbox .toolbox-button[aria-label="Reactions"]::after { content: "React"; }
+#new-toolbox .toolbox-button[aria-label*="participants panel"]::after { content: "Participants"; }
+#new-toolbox .toolbox-button[aria-label$="tile view"]::after { content: "View"; }
+#new-toolbox .toolbox-button[aria-label="More actions"]::after { content: "More"; }
+#new-toolbox .toolbox-button[aria-label="Leave the meeting"]::after { content: "Leave"; color: #FF6B6E; font-weight: 600; }
+
+/* Muted microphone / stopped camera in red, Share in green, Leave in red. */
+#new-toolbox .toolbox-button[aria-label="Unmute microphone"] svg,
+#new-toolbox .toolbox-button[aria-label="Start camera"] svg { fill: #FF6B6E !important; }
+#new-toolbox .toolbox-button[aria-label^="Start sharing"] .toolbox-icon,
+#new-toolbox .toolbox-button[aria-label^="Stop sharing"] .toolbox-icon {
+    width: 32px !important;
+    height: 28px !important;
+    margin: 1px 0;
+    border-radius: 7px !important;
+    background: #1FB25A !important;
+}
+#new-toolbox .toolbox-button[aria-label^="Start sharing"] svg,
+#new-toolbox .toolbox-button[aria-label^="Stop sharing"] svg { fill: #fff !important; }
+#new-toolbox .toolbox-button .toolbox-icon.hangup-menu-button {
+    width: 42px !important;
+    height: 30px !important;
+    border-radius: 10px !important;
+    background: #E5484D !important;
+}
+#new-toolbox .toolbox-button .toolbox-icon.hangup-menu-button svg { fill: #fff !important; }
+
+/* Device menus beside Mute and Video: a bare caret, as in Zoom. */
+#new-toolbox .settings-button-small-icon,
+#new-toolbox .settings-button-small-icon--disabled {
+    top: 13px !important;
+    right: 4px !important;
+    width: 12px !important;
+    height: 12px !important;
+    border: 0 !important;
+    border-radius: 3px !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    opacity: 0.65;
+}
+#new-toolbox .settings-button-small-icon .jitsi-icon { background: transparent !important; }
+#new-toolbox .settings-button-small-icon svg {
+    width: 12px !important;
+    height: 12px !important;
+    fill: #DCD7F0 !important;
+}
+#new-toolbox .settings-button-small-icon:hover {
+    background: transparent !important;
+    opacity: 1;
+}
+
+/* ── Video tiles ─────────────────────────────────────────────────────── */
+.videocontainer {
+    overflow: hidden;
+    border-radius: 12px !important;
+}
+
+/* ── Narrow windows: icons only ──────────────────────────────────────── */
+@media (max-width: 720px) {
+    #new-toolbox .toolbox-button { min-width: 44px; height: 48px !important; }
+    #new-toolbox .toolbox-button::after { display: none; }
 }

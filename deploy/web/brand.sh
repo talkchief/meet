@@ -19,6 +19,11 @@ printf '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><image hre
 install -m 0644 "$B/title.html" "$ROOT/title.html"
 install -m 0644 "$B/static/talkchief-branding.json" "$ROOT/static/talkchief-branding.json"
 install -m 0644 "$B/static/talkchief-access.html"  "$ROOT/static/talkchief-access.html"
+# "Meeting ended": Jitsi's close pages (shown after leaving when the close page
+# is enabled) become the branded page, which then returns to Cowork.
+for page in close.html close2.html close3.html; do
+  install -m 0644 "$B/static/talkchief-ended.html" "$ROOT/static/$page"
+done
 
 # Visible wording: lang bundles, static pages, PWA manifest.
 for f in "$ROOT"/lang/*.json "$ROOT"/manifest.json; do

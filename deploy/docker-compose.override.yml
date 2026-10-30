@@ -17,6 +17,22 @@ services:
     networks:
       meet.jitsi:
 
+  # Room events (mod_talkchief_room_events) to Cowork: an internal-only nginx
+  # that forwards them over the private network with TLS verified.
+  events:
+    image: nginx:1.27-alpine
+    restart: ${RESTART_POLICY:-unless-stopped}
+    volumes:
+      - ./events/events.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      meet.jitsi:
+
+  # Prosody signs room events with a key derived from the meeting signing key
+  # (scripts/install.sh writes it to .env).
+  prosody:
+    environment:
+      - TALKCHIEF_EVENTS_SECRET=${TALKCHIEF_EVENTS_SECRET:-}
+
   # TURN relay for clients behind restrictive NAT/firewalls. Ephemeral
   # credentials are issued by prosody from the shared TURN_CREDENTIALS secret.
   coturn:
