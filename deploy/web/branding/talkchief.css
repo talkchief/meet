@@ -181,6 +181,21 @@ body:has(.premeeting-screen) div.watermark.leftwatermark::after { color: #0C243C
 #new-toolbox .toolbox-button[aria-label="More actions"]::after { content: "More"; }
 #new-toolbox .toolbox-button[aria-label="Leave the meeting"]::after { content: "Leave"; color: #fd4b46; font-weight: 600; }
 
+/* Unread chat count: at the top right of the Chat icon, like the
+   participants count (stock Jitsi pins it under the whole button, which sits
+   below the label with our labelled buttons). */
+#new-toolbox .toolbar-button-with-badge .badge-round {
+    top: 3px !important;
+    right: auto !important;
+    bottom: auto !important;
+    left: calc(50% + 6px) !important;
+    min-width: 16px !important;
+    height: 16px;
+    padding: 0 3px;
+    font-size: 11px !important;
+    line-height: 16px !important;
+}
+
 /* Muted microphone / stopped camera in red, Leave in red. */
 #new-toolbox .toolbox-button[aria-label="Unmute microphone"] svg,
 #new-toolbox .toolbox-button[aria-label="Start camera"] svg { fill: #fd4b46 !important; }
