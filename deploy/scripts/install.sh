@@ -56,7 +56,7 @@ chmod 644 "$DEST"/asap/*.pem
 CFG=$(grep -E '^CONFIG=' "$DEST/.env" | tail -1 | cut -d= -f2)
 mkdir -p "$CFG"/{web/keys,web/custom-ca,storage/web,storage/prosody,storage/transcripts,tmp/web-load-test,prosody/config,prosody/prosody-plugins-custom,prosody/custom-ca,jicofo/custom-ca,jvb/custom-ca,jigasi,jibri}
 cp "$HERE/web/custom-config.js" "$HERE/web/custom-interface_config.js" "$CFG/web/"
-cp "$HERE/web/custom-meet.conf" "$CFG/web/"
+mkdir -p "$CFG/web/nginx" && cp "$HERE/web/custom-meet.conf" "$CFG/web/nginx/custom-meet.conf"
 # The Jitsi images run as uid/gid 1000 (s6); every host volume, including the
 # TLS key in web/keys, must belong to that user.
 chown -R 1000:1000 "$CFG"
