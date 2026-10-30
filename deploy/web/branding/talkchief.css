@@ -24,7 +24,7 @@ a.watermark.leftwatermark::after {
     font: 600 18px/1 Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
     white-space: nowrap;
 }
-body:has(.premeeting-screen) a.watermark.leftwatermark::after { color: #1e325c; }
+body:has(.premeeting-screen) a.watermark.leftwatermark::after { color: #0C243C; }
 a.watermark.leftwatermark > div.watermark {
     width: 30px !important;
     min-width: 30px;
@@ -47,12 +47,12 @@ a.watermark.leftwatermark > div.watermark {
     box-shadow: 0 10px 40px rgba(30, 50, 92, 0.1);
 }
 .premeeting-screen #preview { background: transparent !important; }
-.premeeting-screen h1 { color: #1e325c !important; font-weight: 700 !important; }
+.premeeting-screen h1 { color: #0C243C !important; font-weight: 700 !important; }
 .premeeting-screen [class*="-content"],
 .premeeting-screen [class*="-content"] * { color: #3f4350; }
 .premeeting-screen [class*="actionButton"].primary {
     border-radius: 6px !important;
-    background: #1c58d9 !important;
+    background: #0F93F3 !important;
     color: #fff !important;
 }
 .premeeting-screen [class*="actionButton"].primary * { color: #fff !important; }
@@ -73,16 +73,16 @@ a.watermark.leftwatermark > div.watermark {
 .premeeting-screen #new-toolbox .toolbox-button:hover { background: #eef1f7; }
 .premeeting-screen #new-toolbox .toolbox-button::after { display: none !important; }
 .premeeting-screen #new-toolbox .toolbox-button svg,
-.premeeting-screen #new-toolbox .settings-button-small-icon svg { fill: #1e325c !important; }
+.premeeting-screen #new-toolbox .settings-button-small-icon svg { fill: #0C243C !important; }
 .premeeting-screen #new-toolbox .toolbox-button[aria-label="Unmute microphone"] svg,
-.premeeting-screen #new-toolbox .toolbox-button[aria-label="Start camera"] svg { fill: #d24b4e !important; }
+.premeeting-screen #new-toolbox .toolbox-button[aria-label="Start camera"] svg { fill: #fd4b46 !important; }
 
 /* ── Top bar ─────────────────────────────────────────────────────────── */
 .details-container .subject-info-container {
     padding: 4px 6px;
-    border: 1px solid rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(78, 98, 117, 0.45);
     border-radius: 10px;
-    background: rgba(13, 10, 28, 0.78);
+    background: rgba(12, 36, 60, 0.85);
     backdrop-filter: blur(10px);
 }
 
@@ -110,8 +110,8 @@ a.watermark.leftwatermark > div.watermark {
     gap: 2px;
     padding: 6px 14px 8px !important;
     border-radius: 0 !important;
-    border-top: 1px solid rgba(255, 255, 255, 0.07);
-    background: rgba(13, 10, 28, 0.97) !important;
+    border-top: 1px solid rgba(78, 98, 117, 0.45); /* slate #4e6275 */
+    background: rgba(10, 31, 52, 0.97) !important; /* navy #0C243C family */
     box-shadow: none !important;
 }
 /* Mute and video on the left, Leave on the right, the rest centred. */
@@ -141,7 +141,7 @@ a.watermark.leftwatermark > div.watermark {
 #new-toolbox .toolbox-button .toolbox-icon:hover { background: transparent !important; }
 #new-toolbox .toolbox-button::after {
     margin-top: 3px;
-    color: #DCD7F0;
+    color: #d1dae1;
     font: 500 11.5px/1.25 Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
     letter-spacing: 0.01em;
     white-space: nowrap;
@@ -159,18 +159,18 @@ a.watermark.leftwatermark > div.watermark {
 #new-toolbox .toolbox-button[aria-label*="participants panel"]::after { content: "Participants"; }
 #new-toolbox .toolbox-button[aria-label$="tile view"]::after { content: "View"; }
 #new-toolbox .toolbox-button[aria-label="More actions"]::after { content: "More"; }
-#new-toolbox .toolbox-button[aria-label="Leave the meeting"]::after { content: "Leave"; color: #FF6B6E; font-weight: 600; }
+#new-toolbox .toolbox-button[aria-label="Leave the meeting"]::after { content: "Leave"; color: #fd4b46; font-weight: 600; }
 
 /* Muted microphone / stopped camera in red, Share in green, Leave in red. */
 #new-toolbox .toolbox-button[aria-label="Unmute microphone"] svg,
-#new-toolbox .toolbox-button[aria-label="Start camera"] svg { fill: #FF6B6E !important; }
+#new-toolbox .toolbox-button[aria-label="Start camera"] svg { fill: #fd4b46 !important; }
 #new-toolbox .toolbox-button[aria-label^="Start sharing"] .toolbox-icon,
 #new-toolbox .toolbox-button[aria-label^="Stop sharing"] .toolbox-icon {
     width: 32px !important;
     height: 28px !important;
     margin: 1px 0;
     border-radius: 7px !important;
-    background: #1FB25A !important;
+    background: #27b769 !important;
 }
 #new-toolbox .toolbox-button[aria-label^="Start sharing"] svg,
 #new-toolbox .toolbox-button[aria-label^="Stop sharing"] svg { fill: #fff !important; }
@@ -178,7 +178,7 @@ a.watermark.leftwatermark > div.watermark {
     width: 42px !important;
     height: 30px !important;
     border-radius: 10px !important;
-    background: #E5484D !important;
+    background: #fd4b46 !important;
 }
 #new-toolbox .toolbox-button .toolbox-icon.hangup-menu-button svg { fill: #fff !important; }
 
@@ -199,7 +199,7 @@ a.watermark.leftwatermark > div.watermark {
 #new-toolbox .settings-button-small-icon svg {
     width: 12px !important;
     height: 12px !important;
-    fill: #DCD7F0 !important;
+    fill: #d1dae1 !important;
 }
 #new-toolbox .settings-button-small-icon:hover {
     background: transparent !important;
