@@ -54,9 +54,13 @@ chmod 644 "$DEST"/asap/*.pem
 
 # 5. Config dirs, custom web config, coturn.
 CFG=$(grep -E '^CONFIG=' "$DEST/.env" | tail -1 | cut -d= -f2)
-mkdir -p "$CFG"/{web,transcripts,prosody/config,prosody/prosody-plugins-custom,jicofo,jvb,jigasi,jibri}
+mkdir -p "$CFG"/{web/keys,web/custom-ca,storage/web,storage/prosody,storage/transcripts,tmp/web-load-test,prosody/config,prosody/prosody-plugins-custom,prosody/custom-ca,jicofo/custom-ca,jvb/custom-ca,jigasi,jibri}
 cp "$HERE/web/custom-config.js" "$HERE/web/custom-interface_config.js" "$CFG/web/"
 cp "$HERE/web/custom-meet.conf" "$CFG/web/"
+# The Jitsi images run as uid/gid 1000 (s6); every host volume, including the
+# TLS key in web/keys, must belong to that user.
+chown -R 1000:1000 "$CFG"
+[ -f "$CFG/web/keys/cert.key" ] && chmod 600 "$CFG/web/keys/cert.key"
 TS=$(grep -E '^TURN_CREDENTIALS=' "$DEST/.env" | tail -1 | cut -d= -f2)
 sed "s/__TURN_SECRET__/$TS/" "$HERE/coturn/turnserver.conf.template" > "$DEST/coturn/turnserver.conf"
 chmod 644 "$DEST/coturn/turnserver.conf"

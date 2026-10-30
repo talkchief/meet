@@ -23,6 +23,8 @@ services:
     image: coturn/coturn:4.6
     restart: ${RESTART_POLICY:-unless-stopped}
     network_mode: host
+    # Replace the image's default args, which add a second --external-ip.
+    command: ["-c", "/etc/coturn/turnserver.conf"]
     volumes:
       - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
       - ./coturn/certs:/etc/coturn/certs:ro
