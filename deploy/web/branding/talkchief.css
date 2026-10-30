@@ -25,6 +25,13 @@ a.watermark.leftwatermark::after {
     white-space: nowrap;
 }
 body:has(.premeeting-screen) a.watermark.leftwatermark::after { color: #0C243C; }
+/* In the meeting the logo is a quiet mark, not a link. */
+a.watermark.leftwatermark {
+    cursor: default;
+    opacity: 0.55;
+    pointer-events: none;
+}
+body:has(.premeeting-screen) a.watermark.leftwatermark { opacity: 1; }
 a.watermark.leftwatermark > div.watermark {
     width: 30px !important;
     min-width: 30px;
@@ -158,6 +165,7 @@ a.watermark.leftwatermark > div.watermark {
 #new-toolbox .toolbox-button[aria-label="Reactions"]::after { content: "React"; }
 #new-toolbox .toolbox-button[aria-label*="participants panel"]::after { content: "Participants"; }
 #new-toolbox .toolbox-button[aria-label$="tile view"]::after { content: "View"; }
+#new-toolbox .toolbox-button[aria-label="Invite people"]::after { content: "Invite"; }
 #new-toolbox .toolbox-button[aria-label="More actions"]::after { content: "More"; }
 #new-toolbox .toolbox-button[aria-label="Leave the meeting"]::after { content: "Leave"; color: #fd4b46; font-weight: 600; }
 
