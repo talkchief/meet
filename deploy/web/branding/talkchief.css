@@ -253,6 +253,56 @@ div:has(> div > .popover [class*="hangupMenu"]) {
     right: 12px !important;
     left: auto !important;
 }
+/* Leave meeting is a quiet outlined button (was a grey slab with dark text). */
+[class*="hangupMenu"] button[aria-label="Leave meeting"] {
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    background: rgba(255, 255, 255, 0.06) !important;
+    color: #fff !important;
+}
+[class*="hangupMenu"] button[aria-label="Leave meeting"] * { color: #fff !important; }
+
+/* Phones: the Leave menu is a bottom sheet. Stock, its buttons ran edge to
+   edge with no spacing; now a padded sheet with a handle, rounded buttons
+   and room for the home indicator. */
+[class*="drawerMenuContainer"] [class*="-drawer"]:has(button[aria-label="Leave meeting"]) {
+    border-radius: 20px 20px 0 0 !important;
+    background: #0f2238 !important;
+}
+[class*="drawerMenuContainer"] div:has(> button[aria-label="Leave meeting"]) {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 10px !important;
+    padding: 28px 16px calc(16px + env(safe-area-inset-bottom)) !important;
+    position: relative;
+}
+[class*="drawerMenuContainer"] div:has(> button[aria-label="Leave meeting"])::before {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.24);
+    content: "";
+    transform: translateX(-50%);
+}
+[class*="drawerMenuContainer"] div:has(> button[aria-label="Leave meeting"]) > button {
+    height: 52px !important;
+    margin: 0 !important;
+    border-radius: 14px !important;
+    font-size: 16px !important;
+    font-weight: 600 !important;
+}
+[class*="drawerMenuContainer"] button[aria-label="End meeting for all"] {
+    background: #fd4b46 !important;
+    color: #fff !important;
+}
+[class*="drawerMenuContainer"] button[aria-label="Leave meeting"] {
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    background: rgba(255, 255, 255, 0.06) !important;
+    color: #fff !important;
+}
+[class*="drawerMenuContainer"] button[aria-label="Leave meeting"] * { color: #fff !important; }
 
 /* ── Notifications: palette cards (navy, white title, one accent colour per
    kind) instead of the stock slate box with mixed accents. ─────────────── */
