@@ -56,6 +56,17 @@ body:has(.premeeting-screen) div.watermark.leftwatermark::after { color: #0C243C
     box-shadow: 0 10px 40px rgba(30, 50, 92, 0.1);
 }
 .premeeting-screen #preview { background: transparent !important; }
+/* Phones: the join form sits under the preview, which is short; Jitsi's
+   200px avatar (inline size) filled it and ran into the logo. A smaller one,
+   below the logo; the form already shows the avatar and name. */
+@media (max-width: 720px) {
+    .premeeting-screen #preview { box-sizing: border-box; padding-top: 72px; }
+    .premeeting-screen #preview .premeeting-screen-avatar {
+        width: 112px !important;
+        height: 112px !important;
+        font-size: 2.75rem !important;
+    }
+}
 .premeeting-screen h1 { color: #0C243C !important; font-weight: 700 !important; }
 .premeeting-screen [class*="-content"],
 .premeeting-screen [class*="-content"] * { color: #3f4350; }
@@ -339,6 +350,41 @@ div:has(> div > .popover [class*="hangupMenu"]) {
     cursor: pointer;
 }
 .tc-camera-blocked button:disabled { opacity: 0.6; cursor: default; }
+
+/* Microphone or camera blocked by the browser (talkchief-room.js): where to
+   allow it, and Try again. */
+.tc-media-blocked {
+    position: fixed;
+    left: 50%;
+    bottom: calc(var(--tc-toolbar-h, 72px) + 16px);
+    transform: translateX(-50%);
+    z-index: 1000;
+    width: min(420px, calc(100vw - 32px));
+    box-sizing: border-box;
+    padding: 18px 20px 16px;
+    border-radius: 12px;
+    background: #131C2E;
+    border: 1px solid #2A3A57;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+    color: #C9D3E3;
+    font: 14px/1.45 Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+.premeeting-screen ~ .tc-media-blocked, body:has(.premeeting-screen) .tc-media-blocked { bottom: 24px; }
+.tc-media-blocked strong { display: block; margin-bottom: 6px; color: #fff; font-size: 15px; font-weight: 600; }
+.tc-media-blocked p { margin: 0 0 14px; }
+.tc-media-blocked div { display: flex; gap: 8px; justify-content: flex-end; }
+.tc-media-blocked button {
+    padding: 8px 16px;
+    border: 0;
+    border-radius: 6px;
+    background: #0F93F3;
+    color: #fff;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+.tc-media-blocked button.secondary { background: transparent; border: 1px solid #2A3A57; color: #C9D3E3; }
+.tc-media-blocked button:disabled { opacity: 0.6; cursor: default; }
 
 /* ── Narrow windows: icons only ──────────────────────────────────────── */
 @media (max-width: 720px) {

@@ -270,6 +270,151 @@
         });
     }, 2000);
 
+    // Microphone or camera blocked: pressing the button again asks the browser
+    // again (it shows its prompt again when the earlier answer was a dismissal,
+    // or a one-time block). When the browser still refuses without asking,
+    // say where to allow it, with a Try again that turns it on once allowed.
+    var MEDIA = {
+        audio: { permission: 'microphone', name: 'microphone', labels: [ 'Unmute microphone', 'Unmute' ] },
+        video: { permission: 'camera', name: 'camera', labels: [ 'Start camera', 'Start video' ] }
+    };
+    function mediaKindOf(target) {
+        var button = target && target.closest && target.closest('.toolbox-button, [role="button"], button');
+        var label = button && (button.getAttribute('aria-label') || '');
+        if (!label) {
+            return null;
+        }
+        for (var kind in MEDIA) {
+            if (MEDIA[kind].labels.indexOf(label) !== -1) {
+                return { kind: kind, button: button };
+            }
+        }
+        return null;
+    }
+    function where(kind) {
+        var ua = navigator.userAgent;
+        var name = MEDIA[kind].name;
+        var mobile = /iPhone|iPad|iPod|Android/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+        if (/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) {
+            return 'Tap aA (or the page icon) in the address bar > Website Settings > ' + name[0].toUpperCase()
+                + name.slice(1) + ' > Allow. Or reload this page to be asked again.';
+        }
+        if (/Android/.test(ua)) {
+            return 'Tap the icon left of the address > Permissions > ' + name[0].toUpperCase() + name.slice(1) + ' > Allow.';
+        }
+        var text = /Firefox\//.test(ua)
+            ? 'Click the crossed-out ' + name + ' icon in the address bar and remove the block.'
+            : /Safari\//.test(ua) && !/Chrome\//.test(ua)
+                ? 'In Safari, choose Safari > Settings for this website > ' + name[0].toUpperCase() + name.slice(1)
+                    + ' > Allow, or reload this page to be asked again.'
+                : 'Click the ' + (kind === 'video' ? 'camera' : 'microphone')
+                    + ' icon (or the site settings icon) at the right of the address bar and choose Allow.';
+        if (!mobile) {
+            text += ' In the TalkChief Cowork app, allow it for desktop apps in your computer’s privacy settings ('
+                + (/Mac/.test(navigator.platform) ? 'System Settings > Privacy & Security > ' : 'Settings > Privacy & security > ')
+                + name[0].toUpperCase() + name.slice(1) + ').';
+        }
+        return text;
+    }
+    var retrying = false;
+    function turnOn(button) {
+        retrying = true;
+        try {
+            button.click();
+        } finally {
+            retrying = false;
+        }
+    }
+    function closeMediaHelp() {
+        var old = document.getElementById('tc-media-blocked');
+        if (old) {
+            old.remove();
+        }
+    }
+    function showMediaHelp(kind, button, error) {
+        closeMediaHelp();
+        var name = MEDIA[kind].name;
+        var box = document.createElement('div');
+        box.id = 'tc-media-blocked';
+        box.className = 'tc-media-blocked';
+        box.setAttribute('role', 'alertdialog');
+        box.setAttribute('aria-labelledby', 'tc-media-blocked-title');
+        var title = document.createElement('strong');
+        title.id = 'tc-media-blocked-title';
+        var text = document.createElement('p');
+        var other = error && error.name !== 'NotAllowedError' && error.name !== 'SecurityError';
+        title.textContent = other ? 'Your ' + name + ' isn’t available' : name[0].toUpperCase() + name.slice(1) + ' access is blocked';
+        text.textContent = other
+            ? (error.name === 'NotFoundError' || error.name === 'OverconstrainedError'
+                ? 'No ' + name + ' was found. Connect one, then try again.'
+                : 'Your ' + name + ' may be in use by another app. Close that app, then try again.')
+            : where(kind);
+        var actions = document.createElement('div');
+        var again = document.createElement('button');
+        again.type = 'button';
+        again.textContent = 'Try again';
+        var close = document.createElement('button');
+        close.type = 'button';
+        close.className = 'secondary';
+        close.textContent = 'Close';
+        close.onclick = closeMediaHelp;
+        again.onclick = function () {
+            again.disabled = true;
+            askAgain(kind, button, function (err) {
+                again.disabled = false;
+                showMediaHelp(kind, button, err);
+            });
+        };
+        actions.appendChild(again);
+        actions.appendChild(close);
+        box.appendChild(title);
+        box.appendChild(text);
+        box.appendChild(actions);
+        document.body.appendChild(box);
+        again.focus();
+    }
+    // Asks the browser for the device; once it is allowed, the button is
+    // pressed again so the meeting turns it on.
+    function askAgain(kind, button, onRefused) {
+        var constraints = {};
+        constraints[kind] = true;
+        navigator.mediaDevices.getUserMedia(constraints).then(function (stream) {
+            stream.getTracks().forEach(function (t) { t.stop(); });
+            closeMediaHelp();
+            if (document.body.contains(button) && (button.getAttribute('aria-label') || '') &&
+                    MEDIA[kind].labels.indexOf(button.getAttribute('aria-label')) !== -1) {
+                turnOn(button);
+            }
+        }, onRefused);
+    }
+    function permissionState(kind) {
+        if (!navigator.permissions || !navigator.permissions.query) {
+            return Promise.resolve('unknown');
+        }
+        return navigator.permissions.query({ name: MEDIA[kind].permission }).then(function (s) {
+            return s.state;
+        }, function () { return 'unknown'; });
+    }
+    document.addEventListener('click', function (event) {
+        if (retrying || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            return;
+        }
+        var hit = mediaKindOf(event.target);
+        if (!hit) {
+            return;
+        }
+        permissionState(hit.kind).then(function (state) {
+            if (state !== 'denied') {
+                return; // the meeting asks the browser itself
+            }
+            // The meeting's own attempt fails at once; ask again (shows the
+            // prompt where the browser allows it), else explain.
+            askAgain(hit.kind, hit.button, function (err) {
+                showMediaHelp(hit.kind, hit.button, err);
+            });
+        });
+    }, true);
+
     // Screen sharing and sound: browsers only include sound when it is asked
     // for in their share picker, so say whether this share carries sound and,
     // if not, how to include it.
