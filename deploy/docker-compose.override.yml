@@ -50,7 +50,7 @@ services:
   # the meeting services' Docker logs (read-only) and checks each service every
   # minute (monitor/monitor.py). The DSN is the project's public key.
   monitor:
-    image: talkchief/meet-monitor:4
+    image: talkchief/meet-monitor:5
     build:
       context: ./monitor
     restart: ${RESTART_POLICY:-unless-stopped}
