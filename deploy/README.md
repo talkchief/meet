@@ -26,6 +26,23 @@ git clone -b talkchief --depth 1 https://github.com/talkchief/meet.git /opt/talk
 
 The installer is idempotent: on later runs it keeps the existing secrets and keys.
 
+## Call diagnostics
+
+Each person's meeting page (`web/branding/static/talkchief-room.js`) keeps a small record of its own connection. It is sent to `/talkchief-diag` every minute and on leave, and passes through the internal `events` nginx (rate-limited, accepted reports only). It is written one JSON line per report to `/opt/talkchief-meet/diag/diag-YYYY-MM-DD.jsonl`, and files older than 14 days are deleted by `/etc/cron.daily/talkchief-meet-diag`.
+
+- **Not stored:** names, addresses, device labels.
+- **Stored:**
+  - the room and endpoint ID, the same `epId` the JVB and jicofo logs use;
+  - the browser;
+  - every 10 s: `[time, ice, audio sent, audio received, lost, concealed %, jitter ms, rtt ms, path (host/srflx/relay + udp/tcp), mic (on/off/silenced/ended/none), paused incoming audio, video received]`, the counts covering the last 10 s;
+  - events: joined/left, media interrupted/restored, ICE and connection state, mic ended/silenced/back, `audio-restarted` (the audio safety net started paused incoming audio again), page hidden/shown, offline/online.
+
+To look up a participant, find their `epId` in the JVB log, then:
+
+```bash
+grep '\\"ep\\":\\"415c42bd\\"' /opt/talkchief-meet/diag/diag-2026-10-31.jsonl
+```
+
 ## Security model
 
 * **Login:** JWT only (`AUTH_TYPE=jwt`, `JWT_ALLOW_EMPTY=0`, `ENABLE_GUESTS=0`). Tokens are RS256, issuer `talkchief-cowork`, audience `talkchief-meet`.

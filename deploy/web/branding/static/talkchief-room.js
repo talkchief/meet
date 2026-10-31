@@ -533,4 +533,233 @@
         }
         sharing = now;
     }, 1000);
+
+    // ── Call diagnostics and the audio safety net ────────────────────────
+    // A small record of this person's own connection, so a report like
+    // "my audio dropped" can be checked: every 10 s the audio sent and
+    // received, loss, delay and connection type, plus events (connection
+    // lost and back, microphone stopped, paused audio restarted). No names
+    // and no addresses. Sent to the meeting server every minute and on leave
+    // (/talkchief-diag), which keeps it for 14 days.
+    var DIAG_URL = '/talkchief-diag';
+    var diag = { joinedAt: 0, samples: [], events: [], sentSamples: 0, sentEvents: 0, last: null };
+    function diagEvent(type, detail) {
+        if (!diag.joinedAt) {
+            return;
+        }
+        diag.events.push(detail === undefined ? [ Date.now(), type ] : [ Date.now(), type, String(detail).slice(0, 80) ]);
+        var drop = diag.events.length - 400;
+        if (drop > 0) {
+            diag.events.splice(0, drop);
+            diag.sentEvents = Math.max(0, diag.sentEvents - drop);
+        }
+    }
+    function joinedRoom() {
+        var c = window.APP && window.APP.conference;
+        return c && c.isJoined && c.isJoined() ? c._room : null;
+    }
+    function activePC(room) {
+        var tpc = room && room.getActivePeerConnection && room.getActivePeerConnection();
+        return tpc && tpc.peerconnection;
+    }
+
+    // Audio safety net: some browsers (Safari, Firefox) pause incoming audio
+    // after a network interruption and never start it again, which sounds
+    // like "the audio dropped until I rejoined". Start it again.
+    var blockedAudio = {};
+    setInterval(function () {
+        var room = joinedRoom();
+        if (!room) {
+            return;
+        }
+        watchConnection(room); // start the record as soon as the person is in
+        Array.prototype.forEach.call(document.querySelectorAll('audio'), function (el) {
+            var stream = el.srcObject;
+            var live = stream && stream.getAudioTracks && stream.getAudioTracks().some(function (t) {
+                return t.readyState === 'live';
+            });
+            if (!live || !el.paused || el.ended) {
+                if (!el.paused) {
+                    delete blockedAudio[el.id];
+                }
+                return;
+            }
+            var playing = el.play();
+            if (!blockedAudio[el.id]) {
+                diagEvent('audio-restarted', el.id);
+            }
+            if (playing && playing.catch) {
+                playing.catch(function (err) {
+                    if (!blockedAudio[el.id]) {
+                        blockedAudio[el.id] = true;
+                        diagEvent('audio-restart-refused', err && err.name);
+                    }
+                });
+            }
+        });
+    }, 3000);
+
+    function watchConnection(room) {
+        if (room.__talkchiefDiag) {
+            return;
+        }
+        room.__talkchiefDiag = true;
+        diag.joinedAt = Date.now();
+        diagEvent('joined');
+        room.on('conference.connectionInterrupted', function () { diagEvent('media-interrupted'); });
+        room.on('conference.connectionRestored', function () { diagEvent('media-restored'); });
+        var conn = window.APP.connection;
+        if (conn && conn.addEventListener) {
+            conn.addEventListener('connection.connectionFailed', function (e) { diagEvent('signalling-failed', e); });
+        }
+    }
+    var watchedPC = null;
+    var watchedMic = null;
+    function watchPeer(pc) {
+        if (!pc || pc === watchedPC) {
+            return;
+        }
+        watchedPC = pc;
+        diagEvent('peer', pc.iceConnectionState);
+        pc.addEventListener('iceconnectionstatechange', function () { diagEvent('ice', pc.iceConnectionState); });
+        pc.addEventListener('connectionstatechange', function () { diagEvent('conn', pc.connectionState); });
+    }
+    function localMic() {
+        var tracks = (window.APP.store.getState()['features/base/tracks'] || []).filter(function (t) {
+            return t.local && t.mediaType === 'audio';
+        });
+        return tracks[0] || null;
+    }
+    function watchMic(track) {
+        var mst = track && track.jitsiTrack && track.jitsiTrack.getTrack && track.jitsiTrack.getTrack();
+        if (!mst || mst === watchedMic) {
+            return;
+        }
+        watchedMic = mst;
+        diagEvent('mic'); // no device label: it can carry a person's name
+        mst.addEventListener('ended', function () { diagEvent('mic-ended'); });
+        mst.addEventListener('mute', function () { diagEvent('mic-silenced'); }); // the system took the microphone
+        mst.addEventListener('unmute', function () { diagEvent('mic-back'); });
+    }
+    function sum(stats, type, kind, field) {
+        var total = 0;
+        stats.forEach(function (s) {
+            if (s.type === type && (s.kind || s.mediaType) === kind && typeof s[field] === 'number') {
+                total += s[field];
+            }
+        });
+        return total;
+    }
+    function sample() {
+        var room = joinedRoom();
+        if (!room) {
+            return;
+        }
+        watchConnection(room);
+        var pc = activePC(room);
+        watchPeer(pc);
+        var mic = localMic();
+        watchMic(mic);
+        if (!pc) {
+            return;
+        }
+        pc.getStats().then(function (stats) {
+            var now = {
+                sent: sum(stats, 'outbound-rtp', 'audio', 'packetsSent'),
+                recv: sum(stats, 'inbound-rtp', 'audio', 'packetsReceived'),
+                lost: sum(stats, 'inbound-rtp', 'audio', 'packetsLost'),
+                conc: sum(stats, 'inbound-rtp', 'audio', 'concealedSamples'),
+                samp: sum(stats, 'inbound-rtp', 'audio', 'totalSamplesReceived'),
+                vrecv: sum(stats, 'inbound-rtp', 'video', 'packetsReceived')
+            };
+            var jitter = 0;
+            var rtt = null;
+            var path = '';
+            var pair = null;
+            stats.forEach(function (s) {
+                if (s.type === 'inbound-rtp' && (s.kind || s.mediaType) === 'audio' && s.jitter > jitter) {
+                    jitter = s.jitter;
+                }
+                if (s.type === 'transport' && s.selectedCandidatePairId) {
+                    pair = stats.get(s.selectedCandidatePairId);
+                }
+            });
+            if (pair) {
+                rtt = typeof pair.currentRoundTripTime === 'number' ? Math.round(pair.currentRoundTripTime * 1000) : null;
+                var local = stats.get(pair.localCandidateId);
+                path = local ? (local.candidateType || '') + '/' + (local.protocol || '') +
+                    (local.relayProtocol ? '/' + local.relayProtocol : '') : '';
+            }
+            var prev = diag.last || now;
+            var paused = Array.prototype.filter.call(document.querySelectorAll('audio'), function (el) {
+                return el.srcObject && el.paused;
+            }).length;
+            var micTrack = mic && mic.jitsiTrack && mic.jitsiTrack.getTrack && mic.jitsiTrack.getTrack();
+            // [time, ice, sent, received, lost, concealed %, jitter ms, rtt ms,
+            //  path, mic (on/off/silenced/ended/none), paused remote audio, video received]
+            diag.samples.push([
+                Date.now(), pc.iceConnectionState,
+                now.sent - prev.sent, now.recv - prev.recv, now.lost - prev.lost,
+                now.samp - prev.samp > 0 ? Math.round(100 * (now.conc - prev.conc) / (now.samp - prev.samp)) : null,
+                Math.round(jitter * 1000), rtt, path,
+                !micTrack ? 'none' : micTrack.readyState === 'ended' ? 'ended' : micTrack.muted ? 'silenced' : mic.muted ? 'off' : 'on',
+                paused, now.vrecv - prev.vrecv
+            ]);
+            diag.last = now;
+            var dropped = diag.samples.length - 90;
+            if (dropped > 0) {
+                diag.samples.splice(0, dropped);
+                diag.sentSamples = Math.max(0, diag.sentSamples - dropped);
+            }
+        }, function () { /* the connection is changing; next time */ });
+    }
+    setInterval(sample, 10000);
+
+    function sendDiag(leaving) {
+        var room = joinedRoom();
+        if (!diag.joinedAt || (!room && !leaving)) {
+            return;
+        }
+        var samples = diag.samples.slice(diag.sentSamples);
+        var events = diag.events.slice(diag.sentEvents);
+        if (!samples.length && !events.length && !leaving) {
+            return;
+        }
+        var report = {
+            v: 1,
+            room: (window.APP.conference.roomName || '').slice(0, 80),
+            ep: (window.APP.conference.getMyUserId && window.APP.conference.getMyUserId()) || '',
+            ua: navigator.userAgent.slice(0, 200),
+            joined: diag.joinedAt,
+            leaving: Boolean(leaving),
+            samples: samples,
+            events: events
+        };
+        var body = JSON.stringify(report);
+        var sent = false;
+        try {
+            sent = navigator.sendBeacon && navigator.sendBeacon(DIAG_URL, new Blob([ body ], { type: 'text/plain' }));
+        } catch (e) {
+            sent = false;
+        }
+        if (!sent) {
+            try {
+                fetch(DIAG_URL, { method: 'POST', body: body, keepalive: true, credentials: 'omit' });
+            } catch (e) {
+                return;
+            }
+        }
+        diag.sentSamples = diag.samples.length;
+        diag.sentEvents = diag.events.length;
+    }
+    setInterval(function () { sendDiag(false); }, 60000);
+    window.addEventListener('pagehide', function () {
+        diagEvent('left');
+        sendDiag(true);
+    });
+    document.addEventListener('visibilitychange', function () {
+        diagEvent(document.visibilityState === 'hidden' ? 'page-hidden' : 'page-shown');
+    });
+    window.addEventListener('offline', function () { diagEvent('offline'); });
+    window.addEventListener('online', function () { diagEvent('online'); });
 })();

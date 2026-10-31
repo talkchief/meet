@@ -91,6 +91,14 @@ else
   echo "WARN: $DEST/certs/turn.{crt,key} missing; TURNS (5349) will not start" >&2
 fi
 
+# Call diagnostics (events nginx writes them; nginx runs as uid 101): kept 14 days.
+install -d -m 0750 -o 101 -g 101 "$DEST/diag"
+cat > /etc/cron.daily/talkchief-meet-diag <<EOF
+#!/bin/sh
+find "$DEST/diag" -name 'diag-*.jsonl' -mtime +14 -delete
+EOF
+chmod 755 /etc/cron.daily/talkchief-meet-diag
+
 # 6. Build branded web image and start.
 cd "$DEST"
 docker compose build web
@@ -103,4 +111,6 @@ if [ "$before_prosody" != "$(prosody_cfg_sum)" ]; then
 elif [ "$before" != "$(web_cfg_sum)" ]; then
   docker compose restart web
 fi
+# events.conf is a mounted file: reload it (harmless when unchanged).
+docker compose exec -T events nginx -s reload || true
 docker compose ps
