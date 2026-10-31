@@ -45,9 +45,10 @@ grep '\\"ep\\":\\"415c42bd\\"' /opt/talkchief-meet/diag/diag-2026-10-31.jsonl
 
 ## Security model
 
-* **Login:** JWT only (`AUTH_TYPE=jwt`, `JWT_ALLOW_EMPTY=0`, `ENABLE_GUESTS=0`). Tokens are RS256, issuer `talkchief-cowork`, audience `talkchief-meet`.
+* **Login:** members use JWTs only (`AUTH_TYPE=jwt`, `JWT_ALLOW_EMPTY=0`). Tokens are RS256, issuer `talkchief-cowork`, audience `talkchief-meet`. External guests join anonymously through the guest VirtualHost (`ENABLE_GUESTS=1`), only into `g-` rooms (`mod_talkchief_room_policy`).
 * **Tenancy:** each room is scoped to a tenant at `/<team>/<room-uuid>`, and the token must carry `sub=<team>` and a `room` claim that matches the room.
 * **Moderators:** granted only through the token's `context.user.affiliation` (`token_affiliation`). Guests wait for a host (`muc_wait_for_host`), go through the lobby, and are never auto-promoted.
+* **Waiting for a host needs `mod_persistent_lobby` on the main VirtualHost.** `muc_wait_for_host` only fires `create-persistent-lobby-room`; without `persistent_lobby` nothing creates the lobby and a guest walks straight into an empty `g-` room (seen in production on 2026-10-31). The image has no main-VirtualHost-only module setting (`XMPP_MODULES` also loads modules on the guest VirtualHost), so `mod_talkchief_room_policy` loads it and logs `loaded persistent_lobby on meet.jitsi`. As a second line, the policy refuses a guest in a `g-` room that has had no member and has no lobby (`no member yet and no waiting lobby` in the log).
 
 ## Network
 
