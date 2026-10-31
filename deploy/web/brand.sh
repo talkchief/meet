@@ -40,10 +40,12 @@ for f in "$ROOT"/lang/*.json "$ROOT"/manifest.json; do
 done
 # Guests waiting for the host: no "log in to become a moderator" (guests can't),
 # and words that still fit once the host is there and the guest is knocking.
-sed -i \
-  -e "s/The conference has not yet started because no moderators have yet arrived. If you'd like to become a moderator please log-in. Otherwise, please wait./Waiting for the host. You'll join as soon as the host lets you in./" \
-  -e "s/The conference has not yet started because no moderators have yet arrived. Please wait./Waiting for the host. You'll join as soon as the host lets you in./" \
-  "$ROOT/lang/main.json"
+# English is built into the app bundle (in a single-quoted string, hence no
+# apostrophe in the new words); other languages come from lang/*.json.
+sed -i -E \
+  -e "s/The conference has not yet started because no moderators have yet arrived. If you.{1,2}d like to become a moderator please log-in. Otherwise, please wait./Waiting for the host. You will join as soon as the host lets you in./" \
+  -e "s/The conference has not yet started because no moderators have yet arrived. Please wait./Waiting for the host. You will join as soon as the host lets you in./" \
+  "$ROOT/lang/main.json" "$ROOT/libs/app.bundle.min.js"
 # manifest identity
 sed -i -E 's/"org\.jitsi\.meet"/"io.talkchief.cowork.meet"/g' "$ROOT/manifest.json"
 
