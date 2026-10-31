@@ -7,12 +7,13 @@ Two jobs, both in this one small process:
    kind of error (numbers, IDs and addresses are blanked to group them). Each
    kind is sent at most once every 10 minutes; the next report says how many
    were held back.
-2. Health: every minute, checks each service and reports a Sentry cron
-   check-in (meet-jvb, meet-jicofo, meet-bridge, meet-prosody, meet-web,
-   meet-turn). Sentry
-   opens an issue when a check fails twice in a row, or when check-ins stop
-   arriving (the whole server is down). It also reports when jicofo counts
-   participants whose media failed, or video bridges that failed.
+2. Health: every minute, checks each service (meet-jvb, meet-jicofo,
+   meet-bridge, meet-prosody, meet-web, meet-turn). A check that fails twice
+   in a row opens an issue naming it, and the one Sentry cron monitor
+   (meet-health) gets an error check-in; Sentry also alerts when its
+   check-ins stop arriving (the whole server is down). It also reports when
+   jicofo counts participants whose media failed, or video bridges that
+   failed.
 
 Logs are read from /dockerlogs (the host's /var/lib/docker/containers,
 mounted read-only). Tokens, passwords, e-mail and IP addresses are removed
@@ -39,6 +40,7 @@ SERVICES = {'jicofo', 'jvb', 'prosody', 'web', 'coturn'}
 PROJECT = os.environ.get('COMPOSE_PROJECT', '')
 THROTTLE = 600
 TURN_HOST = os.environ.get('TURN_HOST', '46.225.31.248')
+HEALTH_SLUG = os.environ.get('HEALTH_MONITOR', 'meet-health')
 
 sentry_sdk.init(
     dsn=os.environ['SENTRY_DSN'],
@@ -352,17 +354,41 @@ def report_counter(name, delta, what, load):
     log('reported counter', name, total)
 
 
+def report_unhealthy(name, detail, minutes):
+    """One issue per service that keeps failing, repeated at most hourly."""
+    key = ('health', name)
+    if time.time() - sent_at.get(key, 0) < 3600:
+        return
+    sent_at[key] = time.time()
+    with sentry_sdk.new_scope() as scope:
+        scope.set_level('error')
+        scope.set_tag('service', name.replace('meet-', ''))
+        scope.set_tag('check', name)
+        scope.fingerprint = ['meet-health', name]
+        scope.set_context('health', {'check': name, 'detail': detail, 'failingForMinutes': minutes})
+        sentry_sdk.capture_message('%s health check failing: %s' % (name, detail))
+
+
 def health_loop():
-    failing = {}
+    fails = {}
     while True:
         started = time.time()
-        for slug, check in CHECKS.items():
+        unhealthy = []
+        for name, check in CHECKS.items():
             ok, detail = check()
-            capture_checkin(monitor_slug=slug, status=MonitorStatus.OK if ok else MonitorStatus.ERROR,
-                            monitor_config=MONITOR)
-            if ok != failing.get(slug, True):
-                log('health', slug, 'ok' if ok else 'FAILING', detail)
-            failing[slug] = ok
+            before = fails.get(name, 0)
+            fails[name] = 0 if ok else before + 1
+            if ok != (before == 0):
+                log('health', name, 'ok' if ok else 'FAILING', detail)
+            if fails[name] >= 2:                       # twice in a row, like Sentry's own threshold
+                unhealthy.append(name)
+                report_unhealthy(name, detail, fails[name])
+        # One heartbeat for the whole meeting server (the plan has one cron
+        # monitor): error while any check keeps failing, and missing when the
+        # server or this monitor is down.
+        capture_checkin(monitor_slug=HEALTH_SLUG,
+                        status=MonitorStatus.ERROR if unhealthy else MonitorStatus.OK,
+                        monitor_config=MONITOR)
         meeting_problems()
         time.sleep(max(1, 60 - (time.time() - started)))
 
