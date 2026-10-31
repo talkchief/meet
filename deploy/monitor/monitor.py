@@ -300,7 +300,8 @@ def bridge_ok():
 
 CHECKS = {
     'meet-jvb': lambda: http_ok('http://127.0.0.1:8080/about/health'),
-    'meet-jicofo': lambda: http_ok('http://127.0.0.1:8888/about/health'),
+    # jicofo's /about/health is off (404) without JICOFO_ENABLE_HEALTH_CHECKS; /stats answers when it runs.
+    'meet-jicofo': lambda: http_ok('http://127.0.0.1:8888/stats'),
     'meet-bridge': bridge_ok,          # jicofo can reach a working video bridge
     # Prosody through the web container's /http-bind proxy: 502 when prosody is down.
     'meet-prosody': lambda: http_ok('https://127.0.0.1/http-bind', ok=lambda s: s < 500, headers=SITE),
