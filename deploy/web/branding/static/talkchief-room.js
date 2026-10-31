@@ -534,6 +534,42 @@
         sharing = now;
     }, 1000);
 
+    // Guests who arrived before the host wait in the "waiting for host"
+    // lobby. When the host arrives, that lobby closes and the meeting's own
+    // lobby opens (mod_talkchief_room_policy), so the guest is refused once
+    // more as members-only, now without "waiting for host". Jitsi still
+    // thinks the guest is knocking and never knocks again: they stayed on
+    // "waiting for a moderator" while the host saw nobody. Knock on the
+    // meeting's lobby then, so the host can admit them.
+    var waitedForHost = false;
+    var watchingLobby = false;
+    function knockAfterHostArrived() {
+        var store = window.APP.store;
+        var state = store.getState();
+        var conference = state['features/base/conference'] || {};
+        var lobby = state['features/lobby'] || {};
+        if (conference.lobbyWaitingForHost) {
+            waitedForHost = true;
+            return;
+        }
+        if (!waitedForHost || !conference.membersOnly || !lobby.knocking) {
+            return;
+        }
+        waitedForHost = false;
+        var me = (state['features/base/participants'] || {}).local || {};
+        try {
+            conference.membersOnly.joinLobby(me.name, me.email);
+        } catch (e) {
+            // the meeting's own retry still applies
+        }
+    }
+    setInterval(function () {
+        if (!watchingLobby && window.APP && window.APP.store) {
+            watchingLobby = true;
+            window.APP.store.subscribe(knockAfterHostArrived);
+        }
+    }, 500);
+
     // ── Call diagnostics and the audio safety net ────────────────────────
     // A small record of this person's own connection, so a report like
     // "my audio dropped" can be checked: every 10 s the audio sent and

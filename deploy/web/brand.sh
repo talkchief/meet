@@ -38,6 +38,12 @@ for f in "$ROOT"/lang/*.json "$ROOT"/manifest.json; do
     -e "s/(^|[^/.a-zA-Z-])Jitsi([^/.a-zA-Z-]|$)/\1${NAME}\2/g" \
     "$f"
 done
+# Guests waiting for the host: no "log in to become a moderator" (guests can't),
+# and words that still fit once the host is there and the guest is knocking.
+sed -i \
+  -e "s/The conference has not yet started because no moderators have yet arrived. If you'd like to become a moderator please log-in. Otherwise, please wait./Waiting for the host. You'll join as soon as the host lets you in./" \
+  -e "s/The conference has not yet started because no moderators have yet arrived. Please wait./Waiting for the host. You'll join as soon as the host lets you in./" \
+  "$ROOT/lang/main.json"
 # manifest identity
 sed -i -E 's/"org\.jitsi\.meet"/"io.talkchief.cowork.meet"/g' "$ROOT/manifest.json"
 
