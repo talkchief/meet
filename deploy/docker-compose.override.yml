@@ -50,7 +50,7 @@ services:
   # the meeting services' Docker logs (read-only) and checks each service every
   # minute (monitor/monitor.py). The DSN is the project's public key.
   monitor:
-    image: talkchief/meet-monitor:1
+    image: talkchief/meet-monitor:2
     build:
       context: ./monitor
     restart: ${RESTART_POLICY:-unless-stopped}
@@ -60,7 +60,8 @@ services:
       - SENTRY_ENVIRONMENT=production
       - COMPOSE_PROJECT=${COMPOSE_PROJECT_NAME:-talkchief-meet}
       - TURN_HOST=${JVB_ADVERTISE_IPS:-46.225.31.248}
+    # Host network: jicofo and the bridge publish their status only on the
+    # host's 127.0.0.1. The monitor listens on nothing.
+    network_mode: host
     volumes:
       - /var/lib/docker/containers:/dockerlogs:ro
-    networks:
-      meet.jitsi:
