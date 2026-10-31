@@ -82,6 +82,10 @@ NGINX = re.compile(r'\[(emerg|alert|crit|error|warn)\]\s*(?:\d+#\d+:\s*)?(.*)')
 IGNORE = [
     re.compile(r'No such file or directory'),          # nginx: scanners asking for missing files
     re.compile(r'client intended to send too large'),
+    # coturn refusing to relay to a private address (denied-peer-ip): its
+    # anti-SSRF block working while browsers try every ICE candidate pair,
+    # including peers' home-network addresses. Another pair connects.
+    re.compile(r'peer IP \S+ denied in the range'),
 ]
 
 
