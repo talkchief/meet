@@ -60,7 +60,7 @@ def log(*a):
 SCRUB = [
     (re.compile(r'eyJ[\w-]{10,}\.[\w-]{10,}\.[\w-]{10,}'), '[token]'),
     (re.compile(r'(?i)((?:password|passwd|secret|token|jwt|credential)s?["\']?\s*[=:]\s*)["\']?[^\s,"\'&]+'), r'\1[removed]'),
-    (re.compile(r'[\w.+-]+@(?![\w.-]*jitsi)[\w-]+\.[\w.-]+'), '[email]'),   # not XMPP addresses (…@muc.meet.jitsi)
+    (re.compile(r'[\w.+-]+@(?![\w.-]*jitsi\b)[\w-]+\.[\w.-]+'), '[email]'),   # not XMPP addresses (...@muc.meet.jitsi)
     (re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b'), '[ip]'),
     (re.compile(r'\b[0-9a-f]{0,4}(?::[0-9a-f]{0,4}){3,7}\b', re.I), '[ip]'),
 ]
