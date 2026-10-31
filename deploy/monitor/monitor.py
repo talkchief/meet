@@ -23,6 +23,7 @@ import json
 import os
 import re
 import socket
+import ssl
 import struct
 import threading
 import time
@@ -235,12 +236,21 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-OPENER = urllib.request.build_opener(NoRedirect)
+# The monitor runs on the host's network: jicofo and the bridge only answer
+# on the host's loopback (published 127.0.0.1:8888 and :8080), and the web
+# container is reached the way visitors reach it, on 443 (its certificate is
+# for meet.talkchief.io and is a Cloudflare origin certificate, so it is not
+# verified; the connection never leaves the host).
+LOCAL_TLS = ssl.create_default_context()
+LOCAL_TLS.check_hostname = False
+LOCAL_TLS.verify_mode = ssl.CERT_NONE
+OPENER = urllib.request.build_opener(NoRedirect, urllib.request.HTTPSHandler(context=LOCAL_TLS))
+SITE = {'Host': 'meet.talkchief.io'}
 
 
-def http_ok(url, ok=lambda s: s == 200):
+def http_ok(url, ok=lambda s: s == 200, headers=None):
     try:
-        with OPENER.open(url, timeout=8) as r:
+        with OPENER.open(urllib.request.Request(url, headers=headers or {}), timeout=8) as r:
             return ok(r.status), 'HTTP %d' % r.status
     except urllib.error.HTTPError as e:
         return ok(e.code), 'HTTP %d' % e.code
@@ -272,7 +282,7 @@ def stun_ok(host, port=3478):
 
 def jicofo_stats():
     try:
-        with OPENER.open('http://jicofo:8888/stats', timeout=5) as r:
+        with OPENER.open('http://127.0.0.1:8888/stats', timeout=5) as r:
             return json.load(r)
     except Exception:  # noqa: BLE001 - reported by the meet-jicofo check
         return None
@@ -287,11 +297,12 @@ def bridge_ok():
 
 
 CHECKS = {
-    'meet-jvb': lambda: http_ok('http://jvb:8080/about/health'),
-    'meet-jicofo': lambda: http_ok('http://jicofo:8888/about/health'),
+    'meet-jvb': lambda: http_ok('http://127.0.0.1:8080/about/health'),
+    'meet-jicofo': lambda: http_ok('http://127.0.0.1:8888/about/health'),
     'meet-bridge': bridge_ok,          # jicofo can reach a working video bridge
-    'meet-prosody': lambda: http_ok('http://xmpp.meet.jitsi:5280/http-bind', ok=lambda s: s < 500),
-    'meet-web': lambda: http_ok('http://web:80/', ok=lambda s: s < 500),
+    # Prosody through the web container's /http-bind proxy: 502 when prosody is down.
+    'meet-prosody': lambda: http_ok('https://127.0.0.1/http-bind', ok=lambda s: s < 500, headers=SITE),
+    'meet-web': lambda: http_ok('https://127.0.0.1/', ok=lambda s: s < 500, headers=SITE),
     'meet-turn': lambda: stun_ok(TURN_HOST),
 }
 
