@@ -21,8 +21,8 @@ a.watermark.leftwatermark {
 div.watermark.leftwatermark {
     position: relative !important;
     display: block !important;
-    width: 30px !important;
-    height: 30px !important;
+    width: 26px !important;
+    height: 26px !important;
     margin: 16px 0 0 20px !important;
     background-image: url("../images/talkchief-t.png") !important;
     background-position: center !important;
@@ -35,15 +35,29 @@ div.watermark.leftwatermark {
 div.watermark.leftwatermark::after {
     position: absolute;
     top: 50%;
-    left: 39px;
+    left: 34px;
     color: #fff;
     content: "Talkchief Cowork";
-    font: 600 18px/1 Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
+    font: 600 16px/1 Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
     transform: translateY(-50%);
     white-space: nowrap;
 }
 body:has(.premeeting-screen) div.watermark.leftwatermark { opacity: 1; }
 body:has(.premeeting-screen) div.watermark.leftwatermark::after { color: #0C243C; }
+/* Phones: a smaller mark in the top-left corner, without Jitsi's 32px
+   offset. In the meeting it sits under the title bar (which spans the top
+   middle, 20-48px) rather than running into it. */
+@media (max-width: 720px) {
+    div.watermark.leftwatermark {
+        top: 0 !important;
+        left: 0 !important;
+        width: 20px !important;
+        height: 20px !important;
+        margin: 16px 0 0 16px !important;
+    }
+    div.watermark.leftwatermark::after { left: 27px; font-size: 13px; }
+    body:not(:has(.premeeting-screen)) div.watermark.leftwatermark { margin-top: 60px !important; }
+}
 
 /* ── Join screen: light, like the Cowork login ──────────────────────── */
 .premeeting-screen {
