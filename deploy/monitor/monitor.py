@@ -8,9 +8,11 @@ Two jobs, both in this one small process:
    kind is sent at most once every 10 minutes; the next report says how many
    were held back.
 2. Health: every minute, checks each service and reports a Sentry cron
-   check-in (meet-jvb, meet-jicofo, meet-prosody, meet-web, meet-turn). Sentry
+   check-in (meet-jvb, meet-jicofo, meet-bridge, meet-prosody, meet-web,
+   meet-turn). Sentry
    opens an issue when a check fails twice in a row, or when check-ins stop
-   arriving (the whole server is down).
+   arriving (the whole server is down). It also reports when jicofo counts
+   participants whose media failed, or video bridges that failed.
 
 Logs are read from /dockerlogs (the host's /var/lib/docker/containers,
 mounted read-only). Tokens, passwords, e-mail and IP addresses are removed
@@ -268,35 +270,75 @@ def stun_ok(host, port=3478):
         s.close()
 
 
+def jicofo_stats():
+    try:
+        with OPENER.open('http://jicofo:8888/stats', timeout=5) as r:
+            return json.load(r)
+    except Exception:  # noqa: BLE001 - reported by the meet-jicofo check
+        return None
+
+
+def bridge_ok():
+    stats = jicofo_stats()
+    if stats is None:
+        return False, 'no jicofo stats'
+    n = (stats.get('bridge_selector') or {}).get('operational_bridge_count', 0)
+    return n >= 1, '%s operational video bridge(s)' % n
+
+
 CHECKS = {
     'meet-jvb': lambda: http_ok('http://jvb:8080/about/health'),
     'meet-jicofo': lambda: http_ok('http://jicofo:8888/about/health'),
+    'meet-bridge': bridge_ok,          # jicofo can reach a working video bridge
     'meet-prosody': lambda: http_ok('http://xmpp.meet.jitsi:5280/http-bind', ok=lambda s: s < 500),
     'meet-web': lambda: http_ok('http://web:80/', ok=lambda s: s < 500),
     'meet-turn': lambda: stun_ok(TURN_HOST),
 }
 
+# Jicofo counters that only go up when something went wrong in a meeting.
+PROBLEM_COUNTERS = {
+    ('participant_notifications', 'ice_failed'): 'participants whose media connection failed (ICE failed)',
+    ('participant_notifications', 'request_restart'): 'participants who asked to restart their media session',
+    ('bridge_failures', 'participants_moved'): 'participants moved off a failed video bridge',
+    ('bridge_failures', 'bridges_removed'): 'video bridges removed after failing',
+    ('bridge_selector', 'lost_bridges'): 'video bridges lost',
+}
+last_counts = {}
 
-def bridge_load():
-    """Warns once an hour while the video bridge is under heavy load."""
-    try:
-        with OPENER.open('http://jvb:8080/colibri/stats', timeout=5) as r:
-            stats = json.load(r)
-    except Exception:  # noqa: BLE001 - stats are optional
+
+def meeting_problems():
+    """Reports increases in jicofo's problem counters, with the current load."""
+    stats = jicofo_stats()
+    if stats is None:
         return
-    stress = float(stats.get('stress_level') or 0)
-    if stress >= 0.8:
-        key = ('jvb', 'stress')
-        if time.time() - sent_at.get(key, 0) > 3600:
-            sent_at[key] = time.time()
-            with sentry_sdk.new_scope() as scope:
-                scope.set_level('warning')
-                scope.set_tag('service', 'jvb')
-                scope.fingerprint = ['meet-server', 'jvb', 'stress']
-                scope.set_context('bridge', {k: stats.get(k) for k in (
-                    'stress_level', 'conferences', 'participants', 'endpoints_sending_video',
-                    'bit_rate_download', 'bit_rate_upload', 'packet_rate_download', 'rtt_aggregate')})
-                sentry_sdk.capture_message('jvb: video bridge under heavy load (stress %.2f)' % stress)
+    load = {k: stats.get(k) for k in ('conferences', 'participants', 'largest_conference', 'total_conferences_created')}
+    for (group, name), what in PROBLEM_COUNTERS.items():
+        value = (stats.get(group) or {}).get(name)
+        if not isinstance(value, int):
+            continue
+        before = last_counts.get((group, name))
+        last_counts[(group, name)] = value
+        if before is None or value <= before:      # first look, or jicofo restarted
+            continue
+        report_counter(name, value - before, what, load)
+
+
+def report_counter(name, delta, what, load):
+    key = ('jicofo-counter', name)
+    now = time.time()
+    if now - sent_at.get(key, 0) < THROTTLE:
+        held[key] = held.get(key, 0) + delta
+        return
+    sent_at[key] = now
+    total = delta + held.pop(key, 0)
+    with sentry_sdk.new_scope() as scope:
+        scope.set_level('warning')
+        scope.set_tag('service', 'jicofo')
+        scope.set_tag('problem', name)
+        scope.fingerprint = ['meet-server', 'jicofo-counter', name]
+        scope.set_context('meetings', dict(load, count=total))
+        sentry_sdk.capture_message('jicofo: %d %s' % (total, what))
+    log('reported counter', name, total)
 
 
 def health_loop():
@@ -310,7 +352,7 @@ def health_loop():
             if ok != failing.get(slug, True):
                 log('health', slug, 'ok' if ok else 'FAILING', detail)
             failing[slug] = ok
-        bridge_load()
+        meeting_problems()
         time.sleep(max(1, 60 - (time.time() - started)))
 
 
