@@ -30,6 +30,8 @@ cp "$HERE/docker-compose.override.yml" "$DEST/"
 install -d -m 755 "$DEST/events" && install -m 644 "$HERE/events/events.conf" "$DEST/events/events.conf"
 rm -rf "$DEST/web-tc" && cp -r "$HERE/web" "$DEST/web-tc"
 sed -i 's#context: ./web#context: ./web-tc#' "$DEST/docker-compose.override.yml"
+rm -rf "$DEST/monitor-tc" && cp -r "$HERE/monitor" "$DEST/monitor-tc"
+sed -i 's#context: ./monitor#context: ./monitor-tc#' "$DEST/docker-compose.override.yml"
 mkdir -p "$DEST/asap" "$DEST/coturn"
 
 # 3. .env: upstream example + TalkChief overrides + secrets (first run only).
@@ -101,7 +103,7 @@ chmod 755 /etc/cron.daily/talkchief-meet-diag
 
 # 6. Build branded web image and start.
 cd "$DEST"
-docker compose build web
+docker compose build web monitor
 docker compose up -d --remove-orphans
 # Config files live on a volume, so compose does not notice when they change.
 # A web restart briefly drops signalling (clients reconnect); only do it when needed.

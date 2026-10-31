@@ -60,4 +60,12 @@ install -m 0644 "$B/static/talkchief-room.js" "$ROOT/static/talkchief-room.js"
 ROOM_V=$(sha256sum "$ROOT/static/talkchief-room.js" | cut -c1-12)
 sed -i -E 's#<script src="static/talkchief-room.js[^"]*"></script>##' "$ROOT/index.html"
 sed -i "s#</body>#<script src=\"static/talkchief-room.js?v=${ROOM_V}\"></script></body>#" "$ROOT/index.html"
+# Error and call-problem reporting (Sentry, project talkchief-meetings): the
+# vendored browser bundle and its setup, loaded first in <head> so start-up
+# errors are caught too. Reports go through /talkchief-sentry (custom-meet.conf).
+install -m 0644 "$B/static/sentry-9.46.0.min.js" "$ROOT/static/sentry-9.46.0.min.js"
+install -m 0644 "$B/static/talkchief-sentry.js" "$ROOT/static/talkchief-sentry.js"
+SENTRY_V=$(sha256sum "$ROOT/static/talkchief-sentry.js" | cut -c1-12)
+sed -i -E 's#<script src="static/(sentry-[0-9.]+\.min|talkchief-sentry)\.js[^"]*"></script>##g' "$ROOT/index.html"
+sed -i "0,/<head>/s#<head>#<head><script src=\"static/sentry-9.46.0.min.js\"></script><script src=\"static/talkchief-sentry.js?v=${SENTRY_V}\"></script>#" "$ROOT/index.html"
 echo "branding applied"

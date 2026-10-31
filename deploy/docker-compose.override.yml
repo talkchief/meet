@@ -45,3 +45,22 @@ services:
     volumes:
       - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
       - ./coturn/certs:/etc/coturn/certs:ro
+
+  # Errors and health checks to Sentry (project talkchief-meetings): follows
+  # the meeting services' Docker logs (read-only) and checks each service every
+  # minute (monitor/monitor.py). The DSN is the project's public key.
+  monitor:
+    image: talkchief/meet-monitor:1
+    build:
+      context: ./monitor
+    restart: ${RESTART_POLICY:-unless-stopped}
+    read_only: true
+    environment:
+      - SENTRY_DSN=${TALKCHIEF_SENTRY_DSN:-https://2e0b865328e61274abfdb555f7b33298@o4504000494174208.ingest.us.sentry.io/4512351601491968}
+      - SENTRY_ENVIRONMENT=production
+      - COMPOSE_PROJECT=${COMPOSE_PROJECT_NAME:-talkchief-meet}
+      - TURN_HOST=${JVB_ADVERTISE_IPS:-46.225.31.248}
+    volumes:
+      - /var/lib/docker/containers:/dockerlogs:ro
+    networks:
+      meet.jitsi:

@@ -5,6 +5,9 @@
     // leave the room that no longer exists and waits for its timeouts, which
     // left people on a dead screen for several seconds.
     var ended = false;
+    // Refusals that are part of the normal flow (a guest waiting in the
+    // lobby, a wrong token), not problems worth reporting to Sentry.
+    var EXPECTED_FAILURES = [ 'conference.connectionError.membersOnly', 'conference.connectionError.accessDenied', 'conference.authenticationRequired', 'conference.connectionError.notAllowed', 'conference.connectionError.passwordRequired' ];
     function showEnded() {
         if (!ended) {
             ended = true;
@@ -20,6 +23,8 @@
         room.on('conference.failed', function (error) {
             if (error === 'conference.destroyed') {
                 showEnded();
+            } else if (window.tcReport && EXPECTED_FAILURES.indexOf(error) < 0) {
+                window.tcReport('conference-failed', error);
             }
         });
     }, 1000);
@@ -589,7 +594,20 @@
             diag.events.splice(0, drop);
             diag.sentEvents = Math.max(0, diag.sentEvents - drop);
         }
+        if (window.tcReport) {
+            window.tcReport(type, detail); // call problems to Sentry (talkchief-sentry.js)
+        }
     }
+    // The last minute of the record, attached to Sentry reports.
+    window.tcDiagSnapshot = function () {
+        var c = window.APP && window.APP.conference;
+        return {
+            ep: (c && c.getMyUserId && c.getMyUserId()) || '',
+            joinedAt: diag.joinedAt,
+            samples: diag.samples.slice(-6),
+            events: diag.events.slice(-20)
+        };
+    };
     function joinedRoom() {
         var c = window.APP && window.APP.conference;
         return c && c.isJoined && c.isJoined() ? c._room : null;
