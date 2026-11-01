@@ -47,6 +47,13 @@ sed -i -E \
   -e "s/The conference has not yet started because no moderators have yet arrived. Please wait./Waiting for the host. You will join as soon as the host lets you in./" \
   -e 's/"Invite someone"/"Invite"/g' \
   "$ROOT/lang/main.json" "$ROOT/libs/app.bundle.min.js"
+# libs/ is served with a one-year cache under the stock ?v=<build>, so a
+# rewritten bundle never reached browsers or the desktop app's meeting window
+# that already held it. Versioned by content, like the CSS and room script.
+for lib in app.bundle.min.js lib-jitsi-meet.min.js; do
+  LIB_V=$(sha256sum "$ROOT/libs/$lib" | cut -c1-12)
+  sed -i -E "s#libs/${lib//./\\.}\?v=[^\"]*\"#libs/${lib}?v=${LIB_V}\"#" "$ROOT/index.html"
+done
 # manifest identity
 sed -i -E 's/"org\.jitsi\.meet"/"io.talkchief.cowork.meet"/g' "$ROOT/manifest.json"
 
