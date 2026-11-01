@@ -86,6 +86,9 @@ IGNORE = [
     # anti-SSRF block working while browsers try every ICE candidate pair,
     # including peers' home-network addresses. Another pair connects.
     re.compile(r'peer IP \S+ denied in the range'),
+    # coturn: the other end closed a relay connection (tab closed, network
+    # switched, call ended). Normal churn, not a server fault.
+    re.compile(r'socket error: (Broken pipe|Connection reset by peer)'),
 ]
 
 
