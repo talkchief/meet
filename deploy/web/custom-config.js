@@ -48,11 +48,15 @@ config.deploymentUrls = {
     userDocumentationURL: 'https://talkchief.io/',
     downloadAppsUrl: 'https://talkchief.io/'
 };
+// No Performance settings (videoquality), Security options (security; the
+// lobby is always on and guests are admitted from the Participants panel) or
+// Participants stats (stats). 'invite' stays: the Participants panel's Invite
+// button needs it (its More-menu entry is hidden in talkchief.css).
 config.toolbarButtons = [
     'camera', 'chat', 'closedcaptions', 'desktop', 'filmstrip', 'fullscreen', 'invite',
     'hangup', 'help', 'highlight', 'microphone', 'noisesuppression',
-    'participants-pane', 'raisehand', 'reactions', 'security', 'select-background',
-    'settings', 'shareaudio', 'stats', 'tileview', 'toggle-camera', 'videoquality',
+    'participants-pane', 'raisehand', 'reactions', 'select-background',
+    'settings', 'shareaudio', 'tileview', 'toggle-camera',
     'breakout-rooms', 'polls', 'mute-everyone', 'mute-video-everyone'
 ];
 // Brand theme (colours, backgrounds, logo) through Jitsi's dynamic-branding hook.
