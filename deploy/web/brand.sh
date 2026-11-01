@@ -45,6 +45,7 @@ done
 sed -i -E \
   -e "s/The conference has not yet started because no moderators have yet arrived. If you.{1,2}d like to become a moderator please log-in. Otherwise, please wait./Waiting for the host. You will join as soon as the host lets you in./" \
   -e "s/The conference has not yet started because no moderators have yet arrived. Please wait./Waiting for the host. You will join as soon as the host lets you in./" \
+  -e 's/"Invite someone"/"Invite"/g' \
   "$ROOT/lang/main.json" "$ROOT/libs/app.bundle.min.js"
 # manifest identity
 sed -i -E 's/"org\.jitsi\.meet"/"io.talkchief.cowork.meet"/g' "$ROOT/manifest.json"
