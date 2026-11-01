@@ -817,3 +817,39 @@
     window.addEventListener('offline', function () { diagEvent('offline'); });
     window.addEventListener('online', function () { diagEvent('online'); });
 })();
+
+// Reactions open on click, like every other toolbar button (stock Jitsi
+// opens them on hover). A picker opened any other way is closed at once;
+// a second click, a click outside or Escape closes it.
+(function reactionsOnClick() {
+    var CONTAINER = '.reactions-menu-popup-container';
+    var clickOpen = false;
+    var store = function () { return window.APP && window.APP.store; };
+    var isOpen = function () { var s = store(); var r = s && s.getState()['features/reactions']; return Boolean(r && r.visible); };
+    var toggle = function () { var s = store(); if (s) { s.dispatch({type: 'TOGGLE_REACTIONS_VISIBLE'}); } };
+    var watch = function () {
+        var s = store();
+        if (!s) { setTimeout(watch, 500); return; }
+        // Hover opens the picker in stock Jitsi; only a click may open it here.
+        s.subscribe(function () {
+            if (isOpen() && !clickOpen) { toggle(); }
+            if (!isOpen()) { clickOpen = false; }
+        });
+    };
+    watch();
+    document.addEventListener('click', function (e) {
+        var target = e.target;
+        var button = target.closest && target.closest(CONTAINER + ' .toolbox-button');
+        if (button) {
+            e.preventDefault();
+            e.stopPropagation();
+            clickOpen = !isOpen();
+            toggle();
+            return;
+        }
+        if (isOpen() && !(target.closest && target.closest(CONTAINER))) {
+            toggle();
+        }
+    }, true);
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && isOpen()) { toggle(); } }, true);
+})();
