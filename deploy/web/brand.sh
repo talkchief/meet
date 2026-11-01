@@ -76,4 +76,9 @@ install -m 0644 "$B/static/talkchief-sentry.js" "$ROOT/static/talkchief-sentry.j
 SENTRY_V=$(sha256sum "$ROOT/static/talkchief-sentry.js" | cut -c1-12)
 sed -i -E 's#<script src="static/(sentry-[0-9.]+\.min|talkchief-sentry)\.js[^"]*"></script>##g' "$ROOT/index.html"
 sed -i "0,/<head>/s#<head>#<head><script src=\"static/sentry-9.46.0.min.js\"></script><script src=\"static/talkchief-sentry.js?v=${SENTRY_V}\"></script>#" "$ROOT/index.html"
+# Room links without a member token: the app/browser chooser, first thing in <head>.
+install -m 0644 "$B/static/talkchief-entry.js" "$ROOT/static/talkchief-entry.js"
+ENTRY_V=$(sha256sum "$ROOT/static/talkchief-entry.js" | cut -c1-12)
+sed -i -E 's#<script src="static/talkchief-entry\.js[^"]*"></script>##g' "$ROOT/index.html"
+sed -i "0,/<head>/s#<head>#<head><script src=\"static/talkchief-entry.js?v=${ENTRY_V}\"></script>#" "$ROOT/index.html"
 echo "branding applied"
