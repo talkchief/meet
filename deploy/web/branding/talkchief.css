@@ -391,3 +391,8 @@ div:has(> div > .popover [class*="hangupMenu"]) {
     #new-toolbox .toolbox-button { min-width: 44px; height: 48px !important; }
     #new-toolbox .toolbox-button::after { display: none; }
 }
+
+/* Invite lives in the Participants panel ("Invite someone", like Zoom), not
+   in the More menu. The toolbar's 'invite' button stays enabled because the
+   panel's button depends on it; only its More-menu entry is hidden. */
+[aria-label="More actions menu"] [class*="contextMenuItem"][aria-label="Invite people"] { display: none !important; }
