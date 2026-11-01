@@ -455,3 +455,19 @@ div:has(> div > .popover [class*="hangupMenu"]) {
     #new-toolbox .toolbox-button { min-width: 44px; height: 48px !important; }
     #new-toolbox .toolbox-button::after { display: none; }
 }
+
+/* Invite lives in the Participants panel ("Invite someone", like Zoom), not
+   in the More menu. The toolbar's 'invite' button stays enabled because the
+   panel's button depends on it; only its More-menu entry is hidden. */
+[aria-label="More actions menu"] [class*="contextMenuItem"][aria-label="Invite people"] { display: none !important; }
+
+/* Chat: no dot until there is an unread message (the badge keeps a 16px
+   minimum size, so an empty one showed as a dot). */
+#new-toolbox .toolbar-button-with-badge .badge-round:empty,
+#new-toolbox .toolbar-button-with-badge .badge-round:has(> span:empty) { display: none !important; }
+
+/* Tile outlines (active speaker, pinned) and backgrounds follow the tile's
+   12px corners; Jitsi draws them at 4px, so the outline cut the corners. */
+.videocontainer:not(#largeVideoContainer) [class*="-borderIndicator"],
+.videocontainer:not(#largeVideoContainer) [class*="-containerBackground"],
+.videocontainer:not(#largeVideoContainer) .active-speaker-indicator { border-radius: 12px !important; }
