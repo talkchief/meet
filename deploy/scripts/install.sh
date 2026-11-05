@@ -101,9 +101,74 @@ find "$DEST/diag" -name 'diag-*.jsonl' -mtime +14 -delete
 EOF
 chmod 755 /etc/cron.daily/talkchief-meet-diag
 
+# 5b. Private-network allowlist for Prosody's client port (scripts/meet-fw.sh,
+# RUNBOOK-bridge-node.md). The script and unit are always installed (inert
+# files). The unit is enabled only once it has something to protect: an
+# allowlist exists, or PROSODY_C2S_BIND publishes 5222 on a private IP. In the
+# second case it must be applied before compose publishes the port, so a
+# failure here stops the install.
+envval() { grep -E "^$1=" "$DEST/.env" | tail -1 | cut -d= -f2- || true; }
+# .env is the only source: a value exported in this shell would win over .env
+# in docker compose and bypass the checks below.
+unset PROSODY_C2S_BIND
+C2S_BIND=$(envval PROSODY_C2S_BIND); C2S_BIND=${C2S_BIND:-127.0.0.1}
+case "$C2S_BIND" in
+  127.*) ;;
+  10.*|192.168.*|172.1[6-9].*|172.2[0-9].*|172.3[01].*)
+    ip -4 -o addr show | awk '{print $4}' | cut -d/ -f1 | grep -qxF "$C2S_BIND" || {
+      echo "PROSODY_C2S_BIND=$C2S_BIND is not an address of this host" >&2; exit 1; }
+    ;;
+  *) echo "PROSODY_C2S_BIND=$C2S_BIND: must be 127.0.0.1 or this host's private IP, never public" >&2; exit 1 ;;
+esac
+install -m 0755 "$HERE/scripts/meet-fw.sh" /usr/local/sbin/talkchief-meet-fw
+install -m 0644 "$HERE/scripts/talkchief-meet-fw.service" /etc/systemd/system/talkchief-meet-fw.service
+systemctl daemon-reload
+if [ -f "$DEST/bridges.allow" ] || [ "${C2S_BIND#127.}" = "$C2S_BIND" ]; then
+  systemctl enable talkchief-meet-fw.service
+  systemctl restart talkchief-meet-fw.service
+fi
+
+# Restarting prosody, jicofo or jvb drops every live meeting, and
+# `docker compose up` recreates any service whose image or settings changed.
+# So wait until jicofo reports zero conferences (up to IDLE_WAIT_MIN minutes,
+# default 60) and refuse otherwise. FORCE=1 skips the wait. If jicofo is
+# running but its stats cannot be read, refuse too (fail closed); if jicofo is
+# not running at all (first install, stack down) there is nothing to protect.
+jicofo_conferences() {
+  curl -fsS --max-time 5 http://127.0.0.1:8888/stats 2>/dev/null |
+    python3 -c 'import json,sys; c=json.load(sys.stdin).get("conferences"); print(c if isinstance(c,int) and not isinstance(c,bool) and c>=0 else "")' 2>/dev/null || true
+}
+wait_for_idle() {
+  if [ "${FORCE:-0}" = 1 ]; then
+    echo "FORCE=1: restarting without waiting for zero conferences" >&2; return 0
+  fi
+  local wait_min=${IDLE_WAIT_MIN:-60} deadline c running
+  case "$wait_min" in ''|*[!0-9]*) echo "IDLE_WAIT_MIN must be a whole number of minutes" >&2; exit 2 ;; esac
+  deadline=$(( $(date +%s) + wait_min * 60 ))
+  while :; do
+    c=$(jicofo_conferences)
+    if [ "$c" = 0 ]; then
+      echo "jicofo reports 0 conferences: restarting is safe"; return 0
+    elif [ -n "$c" ]; then
+      echo "waiting: jicofo reports $c live conference(s)"
+    elif ! running=$(docker compose ps -q --status running jicofo 2>/dev/null); then
+      echo "jicofo stats cannot be read and docker compose cannot say whether jicofo runs" >&2
+    elif [ -z "$running" ]; then
+      echo "jicofo is not running (first install or stack down): no live meetings to protect"; return 0
+    else
+      echo "jicofo is running but 127.0.0.1:8888/stats cannot be read" >&2
+    fi
+    [ "$(date +%s)" -lt "$deadline" ] || break
+    sleep 30
+  done
+  echo "refusing to (re)start the meeting services: meetings may be live (waited ${wait_min} min; FORCE=1 overrides)" >&2
+  exit 2
+}
+
 # 6. Build branded web image and start.
 cd "$DEST"
 docker compose build web monitor
+wait_for_idle
 docker compose up -d --remove-orphans
 # Config files live on a volume, so compose does not notice when they change.
 # A web restart briefly drops signalling (clients reconnect); only do it when needed.

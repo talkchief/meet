@@ -1,0 +1,74 @@
+# TalkChief Meet bridge node: one extra video bridge (jvb) on its own host,
+# joined to the main meeting host's Prosody over the private network
+# (RUNBOOK-bridge-node.md). Standalone on purpose: the upstream jvb service
+# depends on prosody, which never runs here.
+#
+# Rendered and shipped by scripts/bridge-bundle.sh on the main host, installed
+# by join.sh into /opt/talkchief-meet-bridge. All values come from .env there.
+name: talkchief-meet-bridge
+
+services:
+  jvb:
+    image: ${JITSI_IMAGE_REPO:-ghcr.io/jitsi}/jvb:${JITSI_IMAGE_VERSION:?JITSI_IMAGE_VERSION must match the main host}
+    restart: ${RESTART_POLICY:-unless-stopped}
+    read_only: true
+    tmpfs:
+      - /run:size=32M,mode=1750,exec
+      - /tmp:size=16M,mode=1777,noexec
+    ports:
+      # Media, public (Hetzner Cloud Firewall: inbound UDP 10000 only).
+      - "${JVB_PORT:-10000}:${JVB_PORT:-10000}/udp"
+      # Health, stats and graceful shutdown: this host only ...
+      - "127.0.0.1:8080:8080"
+      # ... and the main host's monitor over the private network. join.sh
+      # installs talkchief-meet-bridge-fw first, which drops every source but
+      # MAIN_PRIVATE_IP.
+      - "${BRIDGE_PRIVATE_IP:?BRIDGE_PRIVATE_IP must be set}:8080:8080"
+    volumes:
+      - ./config/jvb:/config:Z
+      - ./config/jvb/custom-ca:/usr/local/share/ca-certificates:ro,z
+    labels:
+      service: "jitsi-jvb"
+    environment:
+      - ENABLE_OCTO
+      - JVB_ADVERTISE_IPS
+      - JVB_AUTH_PASSWORD
+      - JVB_AUTH_USER
+      - JVB_BREWERY_MUC
+      - JVB_DISABLE_STUN
+      - JVB_INSTANCE_ID
+      - JVB_MUC_NICKNAME
+      - JVB_OCTO_REGION
+      - JVB_OCTO_RELAY_ID
+      - JVB_PORT
+      - SHUTDOWN_REST_ENABLED
+      - TZ
+      - XMPP_AUTH_DOMAIN
+      - XMPP_INTERNAL_MUC_DOMAIN
+      - XMPP_PORT
+      - XMPP_SERVER
+
+  # Errors from this node's jvb log and a local jvb health check, to the same
+  # Sentry project as the main host (monitor.py, MONITOR_ROLE=bridge). No cron
+  # check-in: the main host's monitor checks this node remotely (BRIDGES).
+  # Built here from the bundled monitor/ sources, never pulled from a registry.
+  # Enabled by COMPOSE_PROFILES=monitor in .env.
+  monitor:
+    image: talkchief/meet-monitor:6
+    build:
+      context: ./monitor
+    pull_policy: build
+    profiles: ["monitor"]
+    restart: ${RESTART_POLICY:-unless-stopped}
+    read_only: true
+    environment:
+      - MONITOR_ROLE=bridge
+      - SENTRY_DSN=${TALKCHIEF_SENTRY_DSN:-}
+      - SENTRY_ENVIRONMENT=production
+      - SENTRY_SERVER_NAME=meet-bridge-${BRIDGE_NAME:-node}
+      - COMPOSE_PROJECT=talkchief-meet-bridge
+    # Host network: the jvb publishes its status on the host's 127.0.0.1.
+    # The monitor listens on nothing.
+    network_mode: host
+    volumes:
+      - /var/lib/docker/containers:/dockerlogs:ro

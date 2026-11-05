@@ -26,6 +26,12 @@ git clone -b talkchief --depth 1 https://github.com/talkchief/meet.git /opt/talk
 
 The installer is idempotent: on later runs it keeps the existing secrets and keys.
 
+Restarting Prosody, Jicofo or the bridge drops every live meeting. So the installer waits until Jicofo reports zero conferences before it starts or restarts anything (up to `IDLE_WAIT_MIN` minutes, default 60), and otherwise exits with code 2. `FORCE=1` skips the wait. On a first install (Jicofo not running yet) it does not wait.
+
+## Adding a video bridge node
+
+[`RUNBOOK-bridge-node.md`](RUNBOOK-bridge-node.md) covers the one-time main-host preparation, the bridge bundle (`scripts/bridge-bundle.sh`) and join (`bridge/join.sh`), verification, the failover drill, draining, rollback, and why a second shard is blocked today. Until its steps run, nothing changes: Prosody's client port is published on 127.0.0.1 only.
+
 ## Call diagnostics
 
 Each person's meeting page (`web/branding/static/talkchief-room.js`) keeps a small record of its own connection. It is sent to `/talkchief-diag` every minute and on leave, and passes through the internal `events` nginx (rate-limited, accepted reports only). It is written one JSON line per report to `/opt/talkchief-meet/diag/diag-YYYY-MM-DD.jsonl`, and files older than 14 days are deleted by `/etc/cron.daily/talkchief-meet-diag`.
@@ -59,6 +65,7 @@ grep '\\"ep\\":\\"415c42bd\\"' /opt/talkchief-meet/diag/diag-2026-10-31.jsonl
 | 3478 udp/tcp | TURN |
 | 5349 tcp | TURNS |
 | 49160-49200 udp | TURN relay |
+| 5222 tcp | Prosody, for remote video bridges: 127.0.0.1 only. After the bridge runbook it is on the private IP only, allowlisted per bridge (`talkchief-meet-fw`). |
 
 * `turn.talkchief.io` must be **DNS-only** in Cloudflare.
 * SSH is reachable only on the private network.
