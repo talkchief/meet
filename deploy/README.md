@@ -26,7 +26,7 @@ git clone -b talkchief --depth 1 https://github.com/talkchief/meet.git /opt/talk
 
 The installer is idempotent: on later runs it keeps the existing secrets and keys.
 
-Restarting Prosody, Jicofo or the bridge drops every live meeting. So the installer waits until Jicofo reports zero conferences before it starts or restarts anything (up to `IDLE_WAIT_MIN` minutes, default 60), and otherwise exits with code 2. `FORCE=1` skips the wait. On a first install (Jicofo not running yet) it does not wait.
+Restarting Prosody, Jicofo or the bridge drops every live meeting. So the installer pulls and builds first, then checks that Jicofo reports zero conferences immediately before each start, recreate or restart. It waits up to `IDLE_WAIT_MIN` minutes (default 60) and otherwise exits with code 2. There is no override. If Jicofo's stats cannot be read it refuses, unless no container of the stack exists at all (a first install).
 
 ## Adding a video bridge node
 

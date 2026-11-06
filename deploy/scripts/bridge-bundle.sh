@@ -11,7 +11,8 @@
 #    VERSION and writes /root/bridge-<node-name>.tgz (mode 0600; it holds the
 #    one bridge secret, JVB_AUTH_PASSWORD).
 # 3. Adds the node's private IP to /opt/talkchief-meet/bridges.allow and
-#    re-applies the 5222 allowlist (instant; Prosody is not restarted).
+#    re-applies the 5222 allowlist (a reload: instant; neither Prosody nor
+#    Docker is restarted).
 #
 # Re-running is safe: the tarball is rewritten, the allowlist entry is not
 # duplicated. Copy the tarball to the node over the private network and run
@@ -144,8 +145,9 @@ if awk -v ip="$NODE_PRIV" '{sub(/#.*/, "")} $1 == ip {found=1} END {exit !found}
 else
   printf '%s  # %s, added %s\n' "$NODE_PRIV" "$NAME" "$(date -u +%F)" >>"$ALLOW"
 fi
-systemctl enable "$UNIT" >/dev/null
-systemctl restart "$UNIT"
+# Enables the unit (docker.service then requires it) and reloads the rules.
+# Never `systemctl restart` it: that would restart Docker.
+"$FW" --role main enable
 "$FW" --role main status
 
 cat <<EOF

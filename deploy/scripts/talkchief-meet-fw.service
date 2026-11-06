@@ -1,13 +1,19 @@
 # TalkChief Meet (main host): private-network allowlist for Prosody 5222.
-# Installed by scripts/install.sh; enabled only once /opt/talkchief-meet/bridges.allow
-# exists or PROSODY_C2S_BIND points at the private IP (RUNBOOK-bridge-node.md).
-# DOCKER-USER rules do not survive a reboot, so this re-applies them before
-# Docker starts any container, and again whenever Docker is restarted.
+# Installed by scripts/install.sh. Enabled only once /opt/talkchief-meet/bridges.allow
+# exists or PROSODY_C2S_BIND points at the private IP (RUNBOOK-bridge-node.md),
+# by `talkchief-meet-fw --role main enable`, which also makes docker.service
+# Require this unit (drop-in): Docker never starts without the allowlist.
+#
+# DOCKER-USER rules do not survive a reboot; this applies them before Docker.
+# Docker restarts keep them (Docker never flushes DOCKER-USER).
+# Never stop or restart this unit on a running host: Docker requires it, so
+# that would stop or restart Docker and drop every meeting. RefuseManualStop
+# blocks both. Allowlist changes: `systemctl reload talkchief-meet-fw`.
 [Unit]
 Description=TalkChief Meet private-network allowlist for Prosody 5222 (DOCKER-USER)
 After=ufw.service firewalld.service
 Before=docker.service
-PartOf=docker.service
+RefuseManualStop=yes
 
 [Service]
 Type=oneshot
@@ -16,4 +22,4 @@ ExecStart=/usr/local/sbin/talkchief-meet-fw --role main apply
 ExecReload=/usr/local/sbin/talkchief-meet-fw --role main apply
 
 [Install]
-WantedBy=multi-user.target docker.service
+WantedBy=multi-user.target

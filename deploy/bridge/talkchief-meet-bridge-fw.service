@@ -1,12 +1,17 @@
 # TalkChief Meet (bridge node): only the main host may reach the JVB status
-# port 8080 on this node's private IP. Installed and enabled by join.sh.
-# DOCKER-USER rules do not survive a reboot, so this re-applies them before
-# Docker starts any container, and again whenever Docker is restarted.
+# port 8080 on this node's private IP. Installed by join.sh and enabled with
+# `talkchief-meet-fw --role bridge enable`, which also makes docker.service
+# Require this unit (drop-in): Docker never starts without the allowlist.
+#
+# DOCKER-USER rules do not survive a reboot; this applies them before Docker.
+# Never stop or restart this unit on a running node: Docker requires it, so
+# that would stop or restart Docker. RefuseManualStop blocks both. To
+# re-apply: `systemctl reload talkchief-meet-bridge-fw`.
 [Unit]
 Description=TalkChief Meet bridge allowlist for JVB 8080 (DOCKER-USER)
 After=ufw.service firewalld.service
 Before=docker.service
-PartOf=docker.service
+RefuseManualStop=yes
 
 [Service]
 Type=oneshot
@@ -15,4 +20,4 @@ ExecStart=/usr/local/sbin/talkchief-meet-fw --role bridge apply
 ExecReload=/usr/local/sbin/talkchief-meet-fw --role bridge apply
 
 [Install]
-WantedBy=multi-user.target docker.service
+WantedBy=multi-user.target

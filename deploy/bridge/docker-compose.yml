@@ -30,6 +30,7 @@ services:
     labels:
       service: "jitsi-jvb"
     environment:
+      - COLIBRI_REST_ENABLED
       - ENABLE_OCTO
       - JVB_ADVERTISE_IPS
       - JVB_AUTH_PASSWORD

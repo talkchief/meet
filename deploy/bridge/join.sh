@@ -9,21 +9,30 @@
 #    the public JVB_ADVERTISE_IPS; sshd listens on no public or wildcard
 #    address (SSH is never opened to the internet); the main host's Prosody
 #    answers on MAIN_PRIVATE_IP:5222.
-# 2. Installs into /opt/talkchief-meet-bridge and enables
+# 2. Pulls the jvb image and builds the node monitor from the bundle, before
+#    the running bridge (if any) is touched.
+# 3. If a jvb runs here and the bundle changes its settings, drains it first:
+#    graceful shutdown (no new conferences; it exits when the last one ends),
+#    waiting up to DRAIN_WAIT_MIN minutes (default 60). There is no override:
+#    a bridge is replaced only once it is verifiably idle (stopped), checked
+#    again right before the replacement. An unchanged bundle never restarts it.
+# 4. Installs into /opt/talkchief-meet-bridge and enables
 #    talkchief-meet-bridge-fw (only the main host may reach 8080 on the private
-#    IP) BEFORE the jvb publishes anything.
-# 3. docker compose pull + up, then waits for /about/health.
+#    IP; docker.service then requires it) BEFORE the jvb publishes anything.
+# 5. docker compose up, then requires /about/health, /colibri/stats and the
+#    graceful-shutdown endpoint to answer.
 #
-# Idempotent. When a jvb already runs here, a re-run (new bundle, new VERSION)
-# refuses unless the bridge reports 0 conferences: drain it first (runbook) or
-# set FORCE=1 to accept that its meetings move to another bridge.
-# SKIP_PUBLIC_IP_CHECK=1 skips only the public IP check.
+# Idempotent. SKIP_PUBLIC_IP_CHECK=1 skips only the public IP check. A broken
+# bridge whose stats do not answer cannot be drained: stop it with
+# `docker compose -f /opt/talkchief-meet-bridge/docker-compose.yml down`
+# (Jicofo moves its meetings to another bridge), then re-run.
 set -euo pipefail
 SRC="$(cd "$(dirname "$0")" && pwd)"
 DEST=/opt/talkchief-meet-bridge
 PROJECT=talkchief-meet-bridge
 FW=/usr/local/sbin/talkchief-meet-fw
 UNIT=talkchief-meet-bridge-fw.service
+COLIBRI=http://127.0.0.1:8080
 
 die() { echo "join: $*" >&2; exit 1; }
 ok() { echo "  ok: $*"; }
@@ -94,20 +103,81 @@ timeout 5 bash -c "exec 3<>/dev/tcp/$MAIN_PRIVATE_IP/$XMPP_PORT" 2>/dev/null ||
   die "cannot reach Prosody at $MAIN_PRIVATE_IP:$XMPP_PORT. On the main host: is the one-time preparation done, and is $BRIDGE_PRIVATE_IP in /opt/talkchief-meet/bridges.allow (bridge-bundle.sh adds it)?"
 ok "Prosody reachable at $MAIN_PRIVATE_IP:$XMPP_PORT"
 
-# A jvb already running here: only replace it when it carries no meetings.
-if [ -f "$DEST/docker-compose.yml" ] && [ -n "$(cd "$DEST" && docker compose ps -q --status running jvb 2>/dev/null)" ]; then
-  if [ "${FORCE:-0}" = 1 ]; then
-    echo "  FORCE=1: replacing the running bridge even if it carries meetings"
-  else
-    c=$(curl -fsS --max-time 5 http://127.0.0.1:8080/colibri/stats 2>/dev/null |
-      python3 -c 'import json,sys; c=json.load(sys.stdin).get("conferences"); print(c if isinstance(c,int) and not isinstance(c,bool) else "")' 2>/dev/null || true)
-    [ "$c" = 0 ] || die "this bridge reports ${c:-unknown (stats unreadable)} conference(s): drain it first (RUNBOOK-bridge-node.md) or set FORCE=1"
-    ok "running bridge has 0 conferences"
+# ── Helpers ──────────────────────────────────────────────────────────────
+dc_src() { docker compose --project-directory "$SRC" -f "$SRC/docker-compose.yml" "$@"; }
+dc() { (cd "$DEST" && docker compose "$@"); }
+# jvb containers of this project that are running, restarting or paused.
+live_jvb() {
+  docker ps -q --filter "label=com.docker.compose.project=$PROJECT" --filter "label=com.docker.compose.service=jvb" \
+    --filter status=running --filter status=restarting --filter status=paused
+}
+colibri_conferences() {
+  curl -fsS --max-time 5 "$COLIBRI/colibri/stats" 2>/dev/null |
+    python3 -c 'import json,sys; c=json.load(sys.stdin).get("conferences"); print(c if isinstance(c,int) and not isinstance(c,bool) and c>=0 else "")' 2>/dev/null || true
+}
+monitor_on() { case ",$(envval COMPOSE_PROFILES)," in *,monitor,*) return 0 ;; esac; return 1; }
+same() { [ -f "$2" ] && cmp -s "$1" "$2"; }
+
+# ── Pull and build first: nothing slow between the idle check and the start ──
+echo "Pulling and building"
+dc_src pull jvb
+if monitor_on; then dc_src build monitor; fi
+
+# The jvb's settings come from .env and docker-compose.yml only (local
+# custom-jvb.conf tuning is kept and never compared).
+jvb_changed=1; monitor_changed=1
+if same "$SRC/.env" "$DEST/.env" && same "$SRC/docker-compose.yml" "$DEST/docker-compose.yml"; then
+  jvb_changed=0
+  if same "$SRC/monitor/Dockerfile" "$DEST/monitor/Dockerfile" && same "$SRC/monitor/monitor.py" "$DEST/monitor/monitor.py"; then
+    monitor_changed=0
   fi
+fi
+live=$(live_jvb) || die "cannot ask Docker for this node's jvb containers"
+
+# ── Drain the running bridge before it is replaced ───────────────────────
+if [ -n "$live" ] && [ "$jvb_changed" = 1 ]; then
+  echo "Draining the running bridge (the bundle changes its settings)"
+  c=$(colibri_conferences)
+  [ -n "$c" ] || die "the running bridge's $COLIBRI/colibri/stats does not answer, so it cannot be drained safely (see the header of this script)"
+  cid=$(printf '%s\n' "$live" | head -1)
+  policy=$(docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' "$cid")
+  # Otherwise Docker restarts the bridge as soon as the drained jvb exits.
+  docker update --restart=no "$cid" >/dev/null
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST -H 'Content-Type: application/json' \
+    -d '{"graceful-shutdown": "true"}' "$COLIBRI/colibri/shutdown" || true)
+  if [ "$code" != 200 ]; then
+    docker update --restart="${policy:-unless-stopped}" "$cid" >/dev/null || true
+    die "graceful shutdown was refused (HTTP $code): needs SHUTDOWN_REST_ENABLED=true and COLIBRI_REST_ENABLED=true on the running bridge"
+  fi
+  ok "graceful shutdown started with $c conference(s); no new conferences come here"
+  wait_min=${DRAIN_WAIT_MIN:-60}
+  case "$wait_min" in ''|*[!0-9]*) die "DRAIN_WAIT_MIN must be a whole number of minutes" ;; esac
+  deadline=$(( $(date +%s) + wait_min * 60 ))
+  while [ -n "$(live_jvb)" ]; do
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      # It keeps draining and exits when empty; let Docker bring it back then
+      # with its current settings, so the node does not stay down.
+      docker update --restart="${policy:-unless-stopped}" "$cid" >/dev/null || true
+      die "the bridge still carries $(colibri_conferences || true) conference(s) after ${wait_min} min. It keeps draining and restarts with its current settings when empty; re-run join.sh later"
+    fi
+    echo "  waiting: $(colibri_conferences || true) conference(s) left on this bridge"
+    sleep 15
+  done
+  ok "the bridge has stopped: idle"
+fi
+
+# Checked before anything in $DEST changes, and again right before the start.
+if [ "$jvb_changed" = 1 ] && [ -n "$(live_jvb)" ]; then
+  die "a jvb is running (Docker restarted it, or someone started it): not replacing it. Re-run join.sh"
 fi
 
 echo "Installing into $DEST"
 install -d -m 0750 "$DEST" "$DEST/config" "$DEST/config/jvb" "$DEST/config/jvb/custom-ca" "$DEST/monitor"
+if [ "$jvb_changed" = 1 ]; then
+  for f in .env docker-compose.yml; do
+    if [ -f "$DEST/$f" ]; then cp -p "$DEST/$f" "$DEST/$f.prev"; fi
+  done
+fi
 install -m 0600 "$SRC/.env" "$DEST/.env"
 install -m 0644 "$SRC/docker-compose.yml" "$DEST/docker-compose.yml"
 install -m 0644 "$SRC/VERSION" "$DEST/VERSION"
@@ -126,15 +196,26 @@ chmod 755 "$DEST/monitor"
 # Firewall first: 8080 on the private IP is published by the next step.
 install -m 0755 "$SRC/scripts/meet-fw.sh" "$FW"
 install -m 0644 "$SRC/$UNIT" "/etc/systemd/system/$UNIT"
-systemctl daemon-reload
-systemctl enable "$UNIT" >/dev/null
-systemctl restart "$UNIT"
+"$FW" --role bridge enable
 "$FW" --role bridge status
 
 echo "Starting the bridge"
-cd "$DEST"
-docker compose pull jvb
-docker compose up -d --remove-orphans
+if [ "$jvb_changed" = 1 ]; then
+  # Re-checked right before the replacement: no jvb may be running now. If one
+  # is, put the previous settings back, so the next run still sees a change.
+  if [ -n "$(live_jvb)" ]; then
+    for f in .env docker-compose.yml; do
+      if [ -f "$DEST/$f.prev" ]; then mv -f "$DEST/$f.prev" "$DEST/$f"; else mv -f "$DEST/$f" "$DEST/$f.rejected"; fi
+    done
+    die "a jvb is running again (Docker restarted it, or someone started it): not replacing it; previous settings restored. Re-run join.sh"
+  fi
+  dc up -d --no-build --force-recreate --remove-orphans
+  rm -f "$DEST/.env.prev" "$DEST/docker-compose.yml.prev" "$DEST/.env.rejected" "$DEST/docker-compose.yml.rejected"
+else
+  # Same settings: start whatever is not running, never replace the jvb.
+  dc up -d --no-build --no-recreate --remove-orphans
+  if [ "$monitor_changed" = 1 ] && monitor_on; then dc up -d --no-build --no-deps --force-recreate monitor; fi
+fi
 
 for _ in $(seq 1 45); do
   if curl -fsS --max-time 3 -o /dev/null http://127.0.0.1:8080/about/health 2>/dev/null; then
@@ -143,9 +224,20 @@ for _ in $(seq 1 45); do
   sleep 2
 done
 curl -fsS --max-time 3 -o /dev/null http://127.0.0.1:8080/about/health 2>/dev/null || {
-  docker compose logs --tail 60 jvb >&2 || true
+  dc logs --tail 60 jvb >&2 || true
   die "jvb did not become healthy within 90 s (logs above)"
 }
+# A bridge that cannot report its load or be drained must not stay unnoticed:
+# both are needed by the runbook (and by the next join.sh) to replace it safely.
+c=$(colibri_conferences)
+[ -n "$c" ] || die "$COLIBRI/colibri/stats does not answer: the bridge needs COLIBRI_REST_ENABLED=true (.env). It is running but cannot be drained; see the header of join.sh"
+ok "colibri stats answer ($c conference(s))"
+# GET on the POST-only endpoint: 405 when it exists, 404 when it is disabled.
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$COLIBRI/colibri/shutdown" || true)
+case "$code" in
+  404|000|'') die "$COLIBRI/colibri/shutdown is not available (HTTP ${code:-none}): the bridge needs SHUTDOWN_REST_ENABLED=true and COLIBRI_REST_ENABLED=true (.env). It is running but cannot be drained; see the header of join.sh" ;;
+esac
+ok "graceful shutdown endpoint present (GET answers HTTP $code)"
 
 cat <<EOF
 

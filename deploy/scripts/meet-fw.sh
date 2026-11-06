@@ -12,7 +12,7 @@
 #                 /opt/talkchief-meet-bridge/.env. Allowed source: MAIN_PRIVATE_IP
 #                 (the main host's monitor).
 #
-# Usage: meet-fw.sh [--role main|bridge] apply|remove|status
+# Usage: meet-fw.sh [--role main|bridge] apply|remove|status|enable|disable
 #
 # apply is idempotent and atomic: the allowlist chain is rebuilt in one
 # iptables-restore transaction, so the port is never briefly open. Everything
@@ -21,19 +21,65 @@
 # container traffic (the main host's own jvb and jicofo reach Prosody on the
 # compose network) has a different original destination and is not touched.
 # IPv4 only: the port is published on an IPv4 address.
+#
+# apply fails closed on bad input: an unreadable or partly invalid allowlist
+# still yields a complete rule set (invalid entries skipped, everything else
+# dropped). It exits non-zero only when iptables itself fails, and then Docker
+# could not publish ports either.
+#
+# enable (as root, once the firewall is needed): enables the role's systemd
+# unit, starts it or reloads it, and installs a docker.service drop-in
+# (Requires= + After=), so Docker never starts, at boot or otherwise, without
+# a successfully applied allowlist. The unit refuses manual stop and restart:
+# a restart of a unit Docker requires would restart Docker and drop every
+# meeting. To change the allowlist use `systemctl reload <unit>` (or enable
+# again); it never touches Docker.
+# disable: removes the drop-in and disables the unit (the rules stay until
+# `remove` or a reboot).
 set -euo pipefail
 
+USAGE="usage: $0 [--role main|bridge] apply|remove|status|enable|disable"
 ROLE=main
 while [ $# -gt 0 ]; do
   case "$1" in
     --role) ROLE=${2:-}; shift 2 ;;
     --role=*) ROLE=${1#--role=}; shift ;;
-    apply|remove|status) break ;;
-    *) echo "usage: $0 [--role main|bridge] apply|remove|status" >&2; exit 64 ;;
+    apply|remove|status|enable|disable) break ;;
+    *) echo "$USAGE" >&2; exit 64 ;;
   esac
 done
 ACTION=${1:-}
-case "$ACTION" in apply|remove|status) ;; *) echo "usage: $0 [--role main|bridge] apply|remove|status" >&2; exit 64 ;; esac
+case "$ACTION" in apply|remove|status|enable|disable) ;; *) echo "$USAGE" >&2; exit 64 ;; esac
+case "$ROLE" in
+  main) UNIT=talkchief-meet-fw.service ;;
+  bridge) UNIT=talkchief-meet-bridge-fw.service ;;
+  *) echo "meet-fw: unknown role '$ROLE' (main or bridge)" >&2; exit 64 ;;
+esac
+DROPIN_DIR=${MEET_FW_SYSTEMD_DIR:-/etc/systemd/system}/docker.service.d
+DROPIN=$DROPIN_DIR/10-$UNIT.conf
+
+# enable / disable only manage systemd and need none of the settings below.
+case "$ACTION" in
+  enable)
+    install -d -m 0755 "$DROPIN_DIR"
+    want=$(printf '# Installed by talkchief-meet-fw enable: Docker starts only after the\n# private-network allowlist is applied (scripts/meet-fw.sh).\n[Unit]\nRequires=%s\nAfter=%s\n' "$UNIT" "$UNIT")
+    if [ "$(cat "$DROPIN" 2>/dev/null || true)" != "$want" ]; then
+      printf '%s\n' "$want" >"$DROPIN.tmp" && chmod 644 "$DROPIN.tmp" && mv -f "$DROPIN.tmp" "$DROPIN"
+    fi
+    systemctl daemon-reload            # a running Docker is not restarted by this
+    systemctl enable --quiet "$UNIT"
+    if systemctl is-active --quiet "$UNIT"; then systemctl reload "$UNIT"; else systemctl start "$UNIT"; fi
+    echo "meet-fw ($ROLE): $UNIT enabled and applied; docker.service requires it ($DROPIN)"
+    exit 0
+    ;;
+  disable)
+    rm -f "$DROPIN"
+    systemctl daemon-reload
+    systemctl disable --quiet "$UNIT" || true
+    echo "meet-fw ($ROLE): $UNIT disabled and Docker no longer requires it; rules stay until '$0 --role $ROLE remove' or a reboot"
+    exit 0
+    ;;
+esac
 
 valid_ipv4() {
   local ip=$1 o
@@ -62,7 +108,9 @@ case "$ROLE" in
     # rule is a no-op until the runbook moves the bind to the private IP.
     if ! is_private_ipv4 "$DST"; then DST=${MEET_PRIVATE_IP:-10.1.0.44}; fi
     is_private_ipv4 "$DST" || { echo "meet-fw: MEET_PRIVATE_IP '$DST' is not a private IPv4 address" >&2; exit 1; }
-    if [ -f "$ALLOW" ]; then
+    if [ -e "$ALLOW" ] && ! [ -r "$ALLOW" ]; then
+      echo "meet-fw: cannot read $ALLOW; allowing nobody" >&2
+    elif [ -f "$ALLOW" ]; then
       while IFS= read -r line || [ -n "$line" ]; do
         line=${line%%#*}; read -r ip _ <<<"$line" || true
         [ -n "${ip:-}" ] || continue
@@ -80,7 +128,6 @@ case "$ROLE" in
     is_private_ipv4 "$main_ip" || { echo "meet-fw: MAIN_PRIVATE_IP missing or invalid in $DEST/.env" >&2; exit 1; }
     SOURCES=("$main_ip")
     ;;
-  *) echo "meet-fw: unknown role '$ROLE' (main or bridge)" >&2; exit 64 ;;
 esac
 
 # The rule's comment carries role, destination and port, using only characters

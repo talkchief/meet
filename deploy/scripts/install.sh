@@ -123,59 +123,81 @@ esac
 install -m 0755 "$HERE/scripts/meet-fw.sh" /usr/local/sbin/talkchief-meet-fw
 install -m 0644 "$HERE/scripts/talkchief-meet-fw.service" /etc/systemd/system/talkchief-meet-fw.service
 systemctl daemon-reload
+# `enable` also makes docker.service Require the unit (drop-in), so Docker
+# never starts without the allowlist; a running Docker is not restarted.
 if [ -f "$DEST/bridges.allow" ] || [ "${C2S_BIND#127.}" = "$C2S_BIND" ]; then
-  systemctl enable talkchief-meet-fw.service
-  systemctl restart talkchief-meet-fw.service
+  /usr/local/sbin/talkchief-meet-fw --role main enable
 fi
 
 # Restarting prosody, jicofo or jvb drops every live meeting, and
 # `docker compose up` recreates any service whose image or settings changed.
-# So wait until jicofo reports zero conferences (up to IDLE_WAIT_MIN minutes,
-# default 60) and refuse otherwise. FORCE=1 skips the wait. If jicofo is
-# running but its stats cannot be read, refuse too (fail closed); if jicofo is
-# not running at all (first install, stack down) there is nothing to protect.
+# Rule: such a step runs only while jicofo reports zero conferences. There is
+# no override. wait_for_idle runs immediately before EACH such step (images
+# are pulled and built first, so nothing slow sits between the check and the
+# step), waits up to IDLE_WAIT_MIN minutes (default 60) and otherwise exits 2.
+# Fail closed: if the stats cannot be read, it waits and refuses, except when
+# the stack is verifiably absent (no container of this compose project in any
+# state, i.e. a first install or after `docker compose down`).
 jicofo_conferences() {
   curl -fsS --max-time 5 http://127.0.0.1:8888/stats 2>/dev/null |
     python3 -c 'import json,sys; c=json.load(sys.stdin).get("conferences"); print(c if isinstance(c,int) and not isinstance(c,bool) and c>=0 else "")' 2>/dev/null || true
 }
+# Prints "absent", "present" or nothing (cannot tell).
+stack_state() {
+  local project ids
+  project=$(docker compose config --format json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["name"])' 2>/dev/null) || return 0
+  [ -n "$project" ] || return 0
+  ids=$(docker ps -aq --filter "label=com.docker.compose.project=$project" 2>/dev/null) || return 0
+  if [ -z "$ids" ]; then echo absent; else echo present; fi
+}
 wait_for_idle() {
-  if [ "${FORCE:-0}" = 1 ]; then
-    echo "FORCE=1: restarting without waiting for zero conferences" >&2; return 0
-  fi
-  local wait_min=${IDLE_WAIT_MIN:-60} deadline c running
+  local step=$1 wait_min=${IDLE_WAIT_MIN:-60} deadline c state
   case "$wait_min" in ''|*[!0-9]*) echo "IDLE_WAIT_MIN must be a whole number of minutes" >&2; exit 2 ;; esac
   deadline=$(( $(date +%s) + wait_min * 60 ))
   while :; do
     c=$(jicofo_conferences)
     if [ "$c" = 0 ]; then
-      echo "jicofo reports 0 conferences: restarting is safe"; return 0
+      echo "jicofo reports 0 conferences: $step"; return 0
     elif [ -n "$c" ]; then
-      echo "waiting: jicofo reports $c live conference(s)"
-    elif ! running=$(docker compose ps -q --status running jicofo 2>/dev/null); then
-      echo "jicofo stats cannot be read and docker compose cannot say whether jicofo runs" >&2
-    elif [ -z "$running" ]; then
-      echo "jicofo is not running (first install or stack down): no live meetings to protect"; return 0
+      echo "waiting before '$step': jicofo reports $c live conference(s)"
     else
-      echo "jicofo is running but 127.0.0.1:8888/stats cannot be read" >&2
+      state=$(stack_state)
+      if [ "$state" = absent ]; then
+        echo "no container of this stack exists (first install): $step"; return 0
+      elif [ "$state" = present ]; then
+        echo "waiting before '$step': the stack exists but jicofo stats (127.0.0.1:8888/stats) cannot be read (starting, paused, restarting or down)" >&2
+      else
+        echo "waiting before '$step': jicofo stats cannot be read and docker cannot say whether the stack exists" >&2
+      fi
     fi
     [ "$(date +%s)" -lt "$deadline" ] || break
-    sleep 30
+    sleep 10
   done
-  echo "refusing to (re)start the meeting services: meetings may be live (waited ${wait_min} min; FORCE=1 overrides)" >&2
+  echo "refusing to $step: jicofo did not report zero conferences within ${wait_min} min" >&2
   exit 2
 }
+# Images for every service that is not built here, pulled up front.
+pull_images() {
+  local svcs
+  svcs=$(docker compose config --format json | python3 -c 'import json,sys; print(" ".join(n for n, s in json.load(sys.stdin)["services"].items() if "build" not in s))')
+  # shellcheck disable=SC2086
+  [ -z "$svcs" ] || docker compose pull $svcs
+}
 
-# 6. Build branded web image and start.
+# 6. Build and pull everything first, then start. Nothing below builds or pulls.
 cd "$DEST"
 docker compose build web monitor
-wait_for_idle
-docker compose up -d --remove-orphans
+pull_images
+wait_for_idle "start/update the stack"
+docker compose up -d --no-build --remove-orphans
 # Config files live on a volume, so compose does not notice when they change.
 # A web restart briefly drops signalling (clients reconnect); only do it when needed.
 if [ "$before_prosody" != "$(prosody_cfg_sum)" ]; then
   # Prosody restarts drop every live conference; jicofo/jvb/web reconnect to it.
-  docker compose up -d --force-recreate prosody jicofo jvb web
+  wait_for_idle "recreate prosody, jicofo, jvb and web"
+  docker compose up -d --no-build --force-recreate prosody jicofo jvb web
 elif [ "$before" != "$(web_cfg_sum)" ]; then
+  wait_for_idle "restart web"
   docker compose restart web
 fi
 # events.conf is a mounted file: reload it (harmless when unchanged).
