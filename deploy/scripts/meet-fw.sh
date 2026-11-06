@@ -9,10 +9,16 @@
 #                 sources: /opt/talkchief-meet/bridges.allow, one private IPv4
 #                 per line ("#" starts a comment). No file = nobody.
 #   --role bridge (bridge node): JVB colibri 8080 on BRIDGE_PRIVATE_IP from
-#                 /opt/talkchief-meet-bridge/.env. Allowed source: MAIN_PRIVATE_IP
-#                 (the main host's monitor).
+#                 /opt/talkchief-meet-bridge/.env. Allowed sources: MAIN_PRIVATE_IP
+#                 (the main host's monitor) and, with shards, every address
+#                 in SHARD_PRIVATE_IPS (comma list) from the same file.
+#   --role shard  (shard host, shard mode only): the web container's HTTPS
+#                 8443 on SHARD_PRIVATE_IP from /opt/talkchief-meet/.env, and
+#                 HAProxy's peers port 8445 there (host network: an INPUT
+#                 rule). Allowed sources: the shard hosts in
+#                 /opt/talkchief-meet/shards.list ("<private-ip> <name>").
 #
-# Usage: meet-fw.sh [--role main|bridge] apply|remove|status|enable|disable
+# Usage: meet-fw.sh [--role main|bridge|shard] apply|remove|status|enable|disable
 #
 # apply is idempotent and atomic: the allowlist chain is rebuilt in one
 # iptables-restore transaction, so the port is never briefly open. Everything
@@ -38,7 +44,7 @@
 # `remove` or a reboot).
 set -euo pipefail
 
-USAGE="usage: $0 [--role main|bridge] apply|remove|status|enable|disable"
+USAGE="usage: $0 [--role main|bridge|shard] apply|remove|status|enable|disable"
 ROLE=main
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -53,7 +59,8 @@ case "$ACTION" in apply|remove|status|enable|disable) ;; *) echo "$USAGE" >&2; e
 case "$ROLE" in
   main) UNIT=talkchief-meet-fw.service ;;
   bridge) UNIT=talkchief-meet-bridge-fw.service ;;
-  *) echo "meet-fw: unknown role '$ROLE' (main or bridge)" >&2; exit 64 ;;
+  shard) UNIT=talkchief-meet-shard-fw.service ;;
+  *) echo "meet-fw: unknown role '$ROLE' (main, bridge or shard)" >&2; exit 64 ;;
 esac
 DROPIN_DIR=${MEET_FW_SYSTEMD_DIR:-/etc/systemd/system}/docker.service.d
 DROPIN=$DROPIN_DIR/10-$UNIT.conf
@@ -93,6 +100,19 @@ is_private_ipv4() {   # RFC 1918
   local a b; IFS=. read -r a b _ _ <<<"$1"
   [ "$a" -eq 10 ] || { [ "$a" -eq 172 ] && [ "$b" -ge 16 ] && [ "$b" -le 31 ]; } || { [ "$a" -eq 192 ] && [ "$b" -eq 168 ]; }
 }
+# Allowlist file reader: one private IPv4 first on each line ("#" comments).
+read_allow() {
+  local file=$1 line ip
+  if [ -e "$file" ] && ! [ -r "$file" ]; then
+    echo "meet-fw: cannot read $file; allowing nobody" >&2; return 0
+  fi
+  [ -f "$file" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%%#*}; read -r ip _ <<<"$line" || true
+    [ -n "${ip:-}" ] || continue
+    if is_private_ipv4 "$ip"; then SOURCES+=("$ip"); else echo "meet-fw: ignoring '$ip' in $file (not a private IPv4 address)" >&2; fi
+  done <"$file"
+}
 # Last value wins, like docker compose and scripts/install.sh.
 envval() { [ -r "$1" ] && grep -E "^$2=" "$1" | tail -1 | cut -d= -f2- | tr -d '"'"'"'\r' || true; }
 
@@ -127,6 +147,25 @@ case "$ROLE" in
     is_private_ipv4 "$DST" || { echo "meet-fw: BRIDGE_PRIVATE_IP missing or invalid in $DEST/.env" >&2; exit 1; }
     is_private_ipv4 "$main_ip" || { echo "meet-fw: MAIN_PRIVATE_IP missing or invalid in $DEST/.env" >&2; exit 1; }
     SOURCES=("$main_ip")
+    IFS=, read -ra shard_ips <<<"$(envval "$DEST/.env" SHARD_PRIVATE_IPS)"
+    for ip in "${shard_ips[@]}"; do
+      ip=${ip// /}; [ -n "$ip" ] || continue
+      if is_private_ipv4 "$ip"; then SOURCES+=("$ip"); else echo "meet-fw: ignoring '$ip' in SHARD_PRIVATE_IPS (not a private IPv4 address)" >&2; fi
+    done
+    ;;
+  shard)
+    DEST=${MEET_DEST:-/opt/talkchief-meet}
+    PORT=8443
+    CHAIN=TC-MEET-SHARD
+    DST=$(envval "$DEST/.env" SHARD_PRIVATE_IP)
+    # remove/status work by rule tag: they must also work after a rollback
+    # removed the shard settings.
+    if [ "$ACTION" = apply ]; then
+      is_private_ipv4 "$DST" || { echo "meet-fw: SHARD_PRIVATE_IP missing or invalid in $DEST/.env" >&2; exit 1; }
+    elif ! is_private_ipv4 "$DST"; then
+      DST=0.0.0.0
+    fi
+    read_allow "${MEET_SHARDS_LIST:-$DEST/shards.list}"
     ;;
 esac
 
@@ -138,19 +177,39 @@ WANT="$TAG-${DST//./-}-$PORT"
 RULE=(-p tcp -m conntrack --ctorigdst "$DST/32" --ctorigdstport "$PORT" --ctdir ORIGINAL
       -m comment --comment "$WANT" -j "$CHAIN")
 
-# Our DOCKER-USER rules (any destination), or only the stale ones with $1.
-our_rules() {
-  { iptables -w -S DOCKER-USER 2>/dev/null || true; } | awk -v tag="$TAG-" -v keep="${1:-}" '
-    { for (i = 1; i < NF; i++) if ($i == "--comment" && index($(i + 1), tag) == 1 && $(i + 1) != keep) { print; next } }'
+# Rules are found by their comment tag and deleted by rule number: the form
+# `iptables -S` prints does not always round-trip through -D (iptables-nft
+# prints `--ctorigdst 10.1.0.44` for a rule added with 10.1.0.44/32).
+#   tagged_comments CHAIN PREFIX [KEEP]: comments starting with PREFIX, except KEEP
+tagged_comments() {
+  local rules
+  rules=$(iptables -w -S "$1") || { echo "meet-fw: cannot list chain $1" >&2; return 1; }
+  awk -v tag="$2" -v keep="${3:-}" '
+    { for (i = 1; i < NF; i++) if ($i == "--comment" && index($(i + 1), tag) == 1 && $(i + 1) != keep) print $(i + 1) }' <<<"$rules" | sort -u
 }
-delete_rules() {
-  local line args
-  while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    read -ra args <<<"${line/#-A /-D }"
-    iptables -w "${args[@]}"
-  done
+#   delete_tagged CHAIN PREFIX [KEEP]
+delete_tagged() {
+  local chain=$1 comments c listing n
+  comments=$(tagged_comments "$chain" "$2" "${3:-}") || return 1
+  while IFS= read -r c; do
+    [ -n "$c" ] || continue
+    listing=$(iptables -w -L "$chain" -n --line-numbers) || { echo "meet-fw: cannot list chain $chain" >&2; return 1; }
+    # Highest number first, so the remaining numbers stay valid (all changes
+    # run under the lock taken below, so no other role renumbers meanwhile).
+    for n in $(awk -v c="/* $c */" 'index($0, c) {print $1}' <<<"$listing" | sort -rn); do
+      iptables -w -D "$chain" "$n"
+    done
+  done <<<"$comments"
 }
+# Our DOCKER-USER rules, for status.
+our_rules() { { iptables -w -S DOCKER-USER 2>/dev/null || true; } | grep -F -- "--comment $TAG-" || true; }
+
+# One firewall change at a time across roles: rule numbers used by
+# delete_tagged must not move under us.
+if [ "$ACTION" = apply ] || [ "$ACTION" = remove ]; then
+  exec 8>/run/talkchief-meet-fw.lock
+  flock -w 60 8 || { echo "meet-fw: another meet-fw run holds /run/talkchief-meet-fw.lock" >&2; exit 1; }
+fi
 
 case "$ACTION" in
   apply)
@@ -166,12 +225,31 @@ case "$ACTION" in
       echo 'COMMIT'
     } | iptables-restore -w --noflush
     iptables -w -C DOCKER-USER "${RULE[@]}" 2>/dev/null || iptables -w -I DOCKER-USER 1 "${RULE[@]}"
-    our_rules "$WANT" | delete_rules
+    delete_tagged DOCKER-USER "$TAG-" "$WANT"
+    if [ "$ROLE" = shard ]; then
+      {
+        echo '*filter'
+        echo ":TC-MEET-PEERS - [0:0]"
+        # ACCEPT, not RETURN: on INPUT a RETURN would fall through to the
+        # host's default policy (ufw drops by default).
+        for s in "${SOURCES[@]}"; do echo "-A TC-MEET-PEERS -s $s/32 -j ACCEPT"; done
+        echo "-A TC-MEET-PEERS -j DROP"
+        echo 'COMMIT'
+      } | iptables-restore -w --noflush
+      PEERS_RULE=(-p tcp -d "$DST/32" --dport 8445 -m comment --comment "$TAG-peers-${DST//./-}" -j TC-MEET-PEERS)
+      iptables -w -C INPUT "${PEERS_RULE[@]}" 2>/dev/null || iptables -w -I INPUT 1 "${PEERS_RULE[@]}"
+      delete_tagged INPUT "$TAG-peers-" "$TAG-peers-${DST//./-}"
+      echo "meet-fw ($ROLE): HAProxy peers tcp $DST:8445 open to the same source(s)"
+    fi
     echo "meet-fw ($ROLE): tcp $DST:$PORT open to ${#SOURCES[@]} source(s)${SOURCES[*]:+: ${SOURCES[*]}}; everything else dropped"
     ;;
   remove)
-    our_rules | delete_rules
+    delete_tagged DOCKER-USER "$TAG-"
     if iptables -w -S "$CHAIN" >/dev/null 2>&1; then iptables -w -F "$CHAIN"; iptables -w -X "$CHAIN"; fi
+    if [ "$ROLE" = shard ]; then
+      delete_tagged INPUT "$TAG-peers-"
+      if iptables -w -S TC-MEET-PEERS >/dev/null 2>&1; then iptables -w -F TC-MEET-PEERS; iptables -w -X TC-MEET-PEERS; fi
+    fi
     echo "meet-fw ($ROLE): removed (tcp $DST:$PORT is no longer filtered)"
     ;;
   status)

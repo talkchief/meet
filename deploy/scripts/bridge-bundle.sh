@@ -76,11 +76,27 @@ RUNNING_VERSION=$(envval JITSI_IMAGE_VERSION)
 [ "$RUNNING_VERSION" = "$DJM_TAG" ] ||
   die "main host runs JITSI_IMAGE_VERSION=${RUNNING_VERSION:-unset} but VERSION says $DJM_TAG: upgrade the main host (install.sh) or use the matching checkout"
 
+# Shards (RUNBOOK-shards.md): the bridge joins every shard's Prosody.
+XMPP_SERVERS=$MAIN_PRIV
+SHARD_IPS=""
+if [ -f "$DEST/shards.list" ]; then
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%%#*}; read -r ip _ <<<"$line" || true
+    [ -n "${ip:-}" ] || continue
+    in_private_net "$ip" || die "shards.list: '$ip' is not an address in 10.1.0.0/16"
+    SHARD_IPS=${SHARD_IPS:+$SHARD_IPS,}$ip
+  done <"$DEST/shards.list"
+  [[ ",$SHARD_IPS," == *",$MAIN_PRIV,"* ]] || die "shards.list does not list this host ($MAIN_PRIV)"
+  XMPP_SERVERS=$SHARD_IPS
+fi
+
 # ── Values for the template ──────────────────────────────────────────────
 declare -A V=(
   [JITSI_IMAGE_REPO]=$(envval JITSI_IMAGE_REPO)
   [JITSI_IMAGE_VERSION]=$DJM_TAG
   [MAIN_PRIVATE_IP]=$MAIN_PRIV
+  [XMPP_SERVERS]=$XMPP_SERVERS
+  [SHARD_PRIVATE_IPS]=$SHARD_IPS
   [XMPP_AUTH_DOMAIN]=$(envval XMPP_AUTH_DOMAIN)
   [XMPP_INTERNAL_MUC_DOMAIN]=$(envval XMPP_INTERNAL_MUC_DOMAIN)
   [JVB_BREWERY_MUC]=$(envval JVB_BREWERY_MUC)
@@ -160,3 +176,9 @@ Then on this host, in /opt/talkchief-meet/.env set MONITOR_BRIDGES (comma list,
 now including $NODE_PRIV) and run: docker compose up -d monitor
 Delete the tarball on both hosts once the node has joined.
 EOF
+if [ -n "$SHARD_IPS" ]; then
+  echo
+  echo "Shards: the bridge joins every shard ($SHARD_IPS). Before join.sh, add"
+  echo "$NODE_PRIV to /opt/talkchief-meet/bridges.allow on EVERY other shard host and run"
+  echo "'systemctl reload talkchief-meet-fw' there (join.sh checks each Prosody)."
+fi

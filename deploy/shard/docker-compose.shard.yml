@@ -1,0 +1,23 @@
+# Shard mode only (scripts/install.sh adds this file to COMPOSE_FILE when
+# /opt/talkchief-meet/shards.list exists). HAProxy owns ports 80/443 on this
+# host and routes each room to its shard (shard/haproxy.cfg.template); the
+# web container moves to SHARD_PRIVATE_IP:8443 (set by install.sh), where only
+# the shard hosts can reach it (scripts/meet-fw.sh --role shard).
+services:
+  haproxy:
+    image: haproxy:2.8.16
+    restart: ${RESTART_POLICY:-unless-stopped}
+    network_mode: host
+    # Ports 80/443 on the host network need root (or a host-wide sysctl).
+    user: "0:0"
+    read_only: true
+    tmpfs:
+      - /var/run
+      - /tmp
+    # TC_STARTED: when this container started (shard/haproxy.cfg.template
+    # uses it for the startup grace). A reload (SIGUSR2) keeps the value.
+    entrypoint: ["/bin/sh", "-c", "export TC_STARTED=$$(date +%s); exec docker-entrypoint.sh haproxy -f /usr/local/etc/haproxy/haproxy.cfg"]
+    volumes:
+      - ./haproxy:/usr/local/etc/haproxy:ro
+    depends_on:
+      - web

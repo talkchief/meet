@@ -104,10 +104,16 @@ done < <(ss -Hltnp)
 [ -z "$bad" ] || die "sshd listens on a public or wildcard address:$bad. Bind it to $BRIDGE_PRIVATE_IP only (ListenAddress, or ssh.socket ListenStream) before joining"
 ok "sshd is not listening on any public or wildcard address"
 
-# The main host's Prosody, over the private network.
-timeout 5 bash -c "exec 3<>/dev/tcp/$MAIN_PRIVATE_IP/$XMPP_PORT" 2>/dev/null ||
-  die "cannot reach Prosody at $MAIN_PRIVATE_IP:$XMPP_PORT. On the main host: is the one-time preparation done, and is $BRIDGE_PRIVATE_IP in /opt/talkchief-meet/bridges.allow (bridge-bundle.sh adds it)?"
-ok "Prosody reachable at $MAIN_PRIVATE_IP:$XMPP_PORT"
+# Every Prosody this bridge joins (the main host, or every shard), over the
+# private network.
+IFS=, read -ra xmpp_hosts <<<"$(envval XMPP_SERVER)"
+[ ${#xmpp_hosts[@]} -gt 0 ] || xmpp_hosts=("$MAIN_PRIVATE_IP")
+for h in "${xmpp_hosts[@]}"; do
+  h=${h// /}; [ -n "$h" ] || continue
+  timeout 5 bash -c "exec 3<>/dev/tcp/${h%%:*}/$XMPP_PORT" 2>/dev/null ||
+    die "cannot reach Prosody at ${h%%:*}:$XMPP_PORT. On that host: is the one-time preparation done, and is $BRIDGE_PRIVATE_IP in /opt/talkchief-meet/bridges.allow (bridge-bundle.sh adds it on the host that made the bundle; add it on every other shard)?"
+  ok "Prosody reachable at ${h%%:*}:$XMPP_PORT"
+done
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 dc_src() { docker compose --project-directory "$SRC" -f "$SRC/docker-compose.yml" "$@"; }

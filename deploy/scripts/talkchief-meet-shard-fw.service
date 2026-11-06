@@ -1,0 +1,24 @@
+# TalkChief Meet (shard host, shard mode only): only the shard hosts in
+# /opt/talkchief-meet/shards.list may reach the web container's HTTPS port
+# 8443 on SHARD_PRIVATE_IP (each shard's HAProxy sends rooms there).
+# Installed by scripts/install.sh and enabled by it in shard mode with
+# `talkchief-meet-fw --role shard enable`, which also makes docker.service
+# Require this unit (drop-in): Docker never starts without the allowlist.
+#
+# DOCKER-USER rules do not survive a reboot; this applies them before Docker.
+# Never stop or restart this unit on a running host (RefuseManualStop): Docker
+# requires it. Allowlist changes: `systemctl reload talkchief-meet-shard-fw`.
+[Unit]
+Description=TalkChief Meet shard allowlist for web 8443 (DOCKER-USER)
+After=ufw.service firewalld.service
+Before=docker.service
+RefuseManualStop=yes
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/talkchief-meet-fw --role shard apply
+ExecReload=/usr/local/sbin/talkchief-meet-fw --role shard apply
+
+[Install]
+WantedBy=multi-user.target
