@@ -188,6 +188,8 @@ pull_images() {
 cd "$DEST"
 docker compose build web monitor
 pull_images
+prosody_id() { docker compose ps -q prosody 2>/dev/null || true; }
+before_prosody_id=$(prosody_id)
 wait_for_idle "start/update the stack"
 docker compose up -d --no-build --remove-orphans
 # Config files live on a volume, so compose does not notice when they change.
@@ -196,9 +198,19 @@ if [ "$before_prosody" != "$(prosody_cfg_sum)" ]; then
   # Prosody restarts drop every live conference; jicofo/jvb/web reconnect to it.
   wait_for_idle "recreate prosody, jicofo, jvb and web"
   docker compose up -d --no-build --force-recreate prosody jicofo jvb web
-elif [ "$before" != "$(web_cfg_sum)" ]; then
-  wait_for_idle "restart web"
-  docker compose restart web
+else
+  if [ -n "$before_prosody_id" ] && [ "$before_prosody_id" != "$(prosody_id)" ]; then
+    # `up` recreated prosody (its image, env or ports changed) but kept jicofo
+    # and jvb running. Their reconnect to the new prosody is rate-limited and
+    # jicofo's bridge health checks then time out: 0 operational bridges, no
+    # meetings (seen on 2026-11-06). Restart both so they join cleanly.
+    wait_for_idle "restart jvb and jicofo after prosody was recreated"
+    docker compose restart jvb jicofo
+  fi
+  if [ "$before" != "$(web_cfg_sum)" ]; then
+    wait_for_idle "restart web"
+    docker compose restart web
+  fi
 fi
 # events.conf is a mounted file: reload it (harmless when unchanged).
 docker compose exec -T events nginx -s reload || true
