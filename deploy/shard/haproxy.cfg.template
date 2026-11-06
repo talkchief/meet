@@ -9,6 +9,13 @@
 # static files, guest links) is the same on every shard and goes to any healthy
 # one.
 #
+# Recovery: a room that moved to another shard while its shard was down stays
+# there. The stick table (room -> shard), shared by every shard's HAProxy
+# through `peers` on the private network (port 8445), wins over the hash; the
+# hash only places rooms that have no entry yet. Without it a recovered shard
+# would take new joins for a room whose earlier participants are still on the
+# other shard (one room split in two conferences).
+#
 # Health: two checks per shard, /talkchief-shard-health (web to Jicofo's REST
 # API) and /http-bind (web to Prosody), so a shard is used only while web,
 # Jicofo and Prosody all answer. A dead shard's rooms re-hash
@@ -17,11 +24,16 @@ global
     log stdout format raw local0 info
     maxconn 20000
     tune.ssl.default-dh-param 2048
+    localpeer @LOCALPEER@
+
+peers shards
+@PEERS@
 
 defaults
     mode http
     log global
-    option httplog
+    # No query string in the log: meeting URLs carry the participant's JWT.
+    log-format "%ci:%cp [%tr] %ft %b/%s %TR/%Tw/%Tc/%Tr/%Ta %ST %B %tsc %{+Q}HM %{+Q}HPO shard_key=%[var(txn.shardkey)]"
     option dontlognull
     timeout connect 5s
     timeout client 65s
@@ -37,8 +49,14 @@ frontend meet
     # The load balancer's health check: HAProxy itself is up (it then routes
     # around any dead shard on its own).
     monitor-uri /talkchief-haproxy-health
+    # ...unless it can reach no shard at all: then the load balancer must stop
+    # sending clients here.
+    acl no_shard nbsrv(shards_xmpp) lt 1
+    monitor fail if no_shard
     # Shard health is for HAProxy's own checks only.
-    http-request deny deny_status 404 if { path /talkchief-shard-health }
+    http-request deny deny_status 404 if { path_end /talkchief-shard-health }
+    # Only HAProxy's own checks carry this header (web/custom-meet.conf).
+    http-request del-header X-Talkchief-Shard-Check
     option forwardfor
     # XMPP for a room: /xmpp-websocket?room=<room>, /http-bind?room=<room>,
     # with an optional tenant prefix (/<tenant>/xmpp-websocket?room=<room>).
@@ -51,9 +69,11 @@ frontend meet
 backend shards_xmpp
     balance hash var(txn.shardkey)
     hash-type consistent
+    stick-table type string len 256 size 200k expire 12h peers shards
+    stick on var(txn.shardkey)
     option httpchk
     http-check connect ssl
-    http-check send meth GET uri /talkchief-shard-health ver HTTP/1.1 hdr Host meet.talkchief.io
+    http-check send meth GET uri /talkchief-shard-health ver HTTP/1.1 hdr Host meet.talkchief.io hdr X-Talkchief-Shard-Check 1
     http-check expect status 200
     http-check connect ssl
     http-check send meth GET uri /http-bind ver HTTP/1.1 hdr Host meet.talkchief.io
@@ -68,7 +88,7 @@ backend shards_web
     balance roundrobin
     option httpchk
     http-check connect ssl
-    http-check send meth GET uri /talkchief-shard-health ver HTTP/1.1 hdr Host meet.talkchief.io
+    http-check send meth GET uri /talkchief-shard-health ver HTTP/1.1 hdr Host meet.talkchief.io hdr X-Talkchief-Shard-Check 1
     http-check expect status 200
     http-check connect ssl
     http-check send meth GET uri /http-bind ver HTTP/1.1 hdr Host meet.talkchief.io

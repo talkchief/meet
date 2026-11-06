@@ -78,7 +78,8 @@ if [ -f "$DEST/host.env" ] || [ "$SHARD_MODE" = 1 ]; then
     [ -f "$DEST/host.env" ] && grep -E '^[A-Z_][A-Z0-9_]*=' "$DEST/host.env" || true
     if [ "$SHARD_MODE" = 1 ]; then
       echo "COMPOSE_FILE=docker-compose.yml:docker-compose.override.yml:docker-compose.shard.yml"
-      echo "HTTP_PORT=$SHARD_IP:8000"
+      # Plain HTTP stays on loopback: only the TLS port is for the shard hosts.
+      echo "HTTP_PORT=127.0.0.1:8000"
       echo "HTTPS_PORT=$SHARD_IP:8443"
       echo "ENABLE_HTTP_REDIRECT=0"
     fi
@@ -147,10 +148,10 @@ if [ "$SHARD_MODE" = 1 ]; then
   install -d -m 0700 "$DEST/haproxy"
   tmp=$(mktemp -d "$DEST/haproxy/.new.XXXXXX")
   cat "$CFG/web/keys/cert.crt" "$CFG/web/keys/cert.key" > "$tmp/meet.pem"
-  python3 - "$HERE/shard/haproxy.cfg.template" "$DEST/shards.list" "$tmp/haproxy.cfg" <<'PY'
+  python3 - "$HERE/shard/haproxy.cfg.template" "$DEST/shards.list" "$tmp/haproxy.cfg" "$SHARD_IP" <<'PY'
 import ipaddress, re, sys
-tpl, lst, out = sys.argv[1:]
-servers = []
+tpl, lst, out, self_ip = sys.argv[1:]
+servers, peers, local = [], [], None
 for raw in open(lst):
     line = raw.split("#", 1)[0].split()
     if not line:
@@ -162,9 +163,19 @@ for raw in open(lst):
     # ring is built from server ids, so every shard host gets the same ring.
     a = ipaddress.ip_address(ip).packed
     servers.append(f"    server {name} {ip}:8443 id {a[1] * 65536 + a[2] * 256 + a[3] + 1}")
+    # Stick-table sync between the shard HAProxies (room -> shard survives a
+    # shard's recovery); the local peer is this host's own line.
+    peers.append(f"    peer {name} {ip}:8445")
+    if ip == self_ip:
+        local = name
 if not servers:
     sys.exit("shards.list lists no shard")
-open(out, "w").write(open(tpl).read().replace("@SERVERS@", chr(10).join(servers)))
+if local is None:
+    sys.exit("shards.list does not list this host")
+if len({p.split()[1] for p in peers}) != len(peers):
+    sys.exit("shards.list: shard names must be unique")
+cfg = open(tpl).read().replace("@SERVERS@", chr(10).join(servers))
+open(out, "w").write(cfg.replace("@PEERS@", chr(10).join(peers)).replace("@LOCALPEER@", local))
 PY
   HAPROXY_IMAGE=$(python3 -c 'import re,sys; print(re.search(r"image:\s*(\S+)", open(sys.argv[1]).read()).group(1))' "$HERE/shard/docker-compose.shard.yml")
   docker run --rm --user 0:0 -v "$tmp:/usr/local/etc/haproxy:ro" "$HAPROXY_IMAGE" haproxy -c -q -f /usr/local/etc/haproxy/haproxy.cfg || {
@@ -217,6 +228,11 @@ systemctl daemon-reload
 # publishes it.
 if [ "$SHARD_MODE" = 1 ]; then
   /usr/local/sbin/talkchief-meet-fw --role shard enable
+elif systemctl is-enabled --quiet talkchief-meet-shard-fw.service 2>/dev/null; then
+  # Leaving shard mode (rollback): Docker must no longer require the shard
+  # allowlist, whose settings are gone.
+  /usr/local/sbin/talkchief-meet-fw --role shard disable
+  /usr/local/sbin/talkchief-meet-fw --role shard remove
 fi
 
 # Restarting prosody, jicofo or jvb drops every live meeting, and

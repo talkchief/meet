@@ -13,8 +13,9 @@
 #                 (the main host's monitor) and, with shards, every address
 #                 in SHARD_PRIVATE_IPS (comma list) from the same file.
 #   --role shard  (shard host, shard mode only): the web container's HTTPS
-#                 8443 on SHARD_PRIVATE_IP from /opt/talkchief-meet/.env.
-#                 Allowed sources: the shard hosts in
+#                 8443 on SHARD_PRIVATE_IP from /opt/talkchief-meet/.env, and
+#                 HAProxy's peers port 8445 there (host network: an INPUT
+#                 rule). Allowed sources: the shard hosts in
 #                 /opt/talkchief-meet/shards.list ("<private-ip> <name>").
 #
 # Usage: meet-fw.sh [--role main|bridge|shard] apply|remove|status|enable|disable
@@ -157,7 +158,13 @@ case "$ROLE" in
     PORT=8443
     CHAIN=TC-MEET-SHARD
     DST=$(envval "$DEST/.env" SHARD_PRIVATE_IP)
-    is_private_ipv4 "$DST" || { echo "meet-fw: SHARD_PRIVATE_IP missing or invalid in $DEST/.env" >&2; exit 1; }
+    # remove/status work by rule tag: they must also work after a rollback
+    # removed the shard settings.
+    if [ "$ACTION" = apply ]; then
+      is_private_ipv4 "$DST" || { echo "meet-fw: SHARD_PRIVATE_IP missing or invalid in $DEST/.env" >&2; exit 1; }
+    elif ! is_private_ipv4 "$DST"; then
+      DST=0.0.0.0
+    fi
     read_allow "${MEET_SHARDS_LIST:-$DEST/shards.list}"
     ;;
 esac
@@ -170,19 +177,27 @@ WANT="$TAG-${DST//./-}-$PORT"
 RULE=(-p tcp -m conntrack --ctorigdst "$DST/32" --ctorigdstport "$PORT" --ctdir ORIGINAL
       -m comment --comment "$WANT" -j "$CHAIN")
 
-# Our DOCKER-USER rules (any destination), or only the stale ones with $1.
-our_rules() {
-  { iptables -w -S DOCKER-USER 2>/dev/null || true; } | awk -v tag="$TAG-" -v keep="${1:-}" '
-    { for (i = 1; i < NF; i++) if ($i == "--comment" && index($(i + 1), tag) == 1 && $(i + 1) != keep) { print; next } }'
+# Rules are found by their comment tag and deleted by rule number: the form
+# `iptables -S` prints does not always round-trip through -D (iptables-nft
+# prints `--ctorigdst 10.1.0.44` for a rule added with 10.1.0.44/32).
+#   tagged_comments CHAIN PREFIX [KEEP]: comments starting with PREFIX, except KEEP
+tagged_comments() {
+  { iptables -w -S "$1" 2>/dev/null || true; } | awk -v tag="$2" -v keep="${3:-}" '
+    { for (i = 1; i < NF; i++) if ($i == "--comment" && index($(i + 1), tag) == 1 && $(i + 1) != keep) print $(i + 1) }' | sort -u
 }
-delete_rules() {
-  local line args
-  while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    read -ra args <<<"${line/#-A /-D }"
-    iptables -w "${args[@]}"
-  done
+#   delete_tagged CHAIN PREFIX [KEEP]
+delete_tagged() {
+  local chain=$1 c n
+  while IFS= read -r c; do
+    [ -n "$c" ] || continue
+    # Highest number first, so the remaining numbers stay valid.
+    for n in $(iptables -w -L "$chain" -n --line-numbers 2>/dev/null | awk -v c="/* $c */" 'index($0, c) {print $1}' | sort -rn); do
+      iptables -w -D "$chain" "$n"
+    done
+  done < <(tagged_comments "$chain" "$2" "${3:-}")
 }
+# Our DOCKER-USER rules, for status.
+our_rules() { { iptables -w -S DOCKER-USER 2>/dev/null || true; } | grep -F -- "--comment $TAG-" || true; }
 
 case "$ACTION" in
   apply)
@@ -198,12 +213,29 @@ case "$ACTION" in
       echo 'COMMIT'
     } | iptables-restore -w --noflush
     iptables -w -C DOCKER-USER "${RULE[@]}" 2>/dev/null || iptables -w -I DOCKER-USER 1 "${RULE[@]}"
-    our_rules "$WANT" | delete_rules
+    delete_tagged DOCKER-USER "$TAG-" "$WANT"
+    if [ "$ROLE" = shard ]; then
+      {
+        echo '*filter'
+        echo ":TC-MEET-PEERS - [0:0]"
+        for s in "${SOURCES[@]}"; do echo "-A TC-MEET-PEERS -s $s/32 -j RETURN"; done
+        echo "-A TC-MEET-PEERS -j DROP"
+        echo 'COMMIT'
+      } | iptables-restore -w --noflush
+      PEERS_RULE=(-p tcp -d "$DST/32" --dport 8445 -m comment --comment "$TAG-peers-${DST//./-}" -j TC-MEET-PEERS)
+      iptables -w -C INPUT "${PEERS_RULE[@]}" 2>/dev/null || iptables -w -I INPUT 1 "${PEERS_RULE[@]}"
+      delete_tagged INPUT "$TAG-peers-" "$TAG-peers-${DST//./-}"
+      echo "meet-fw ($ROLE): HAProxy peers tcp $DST:8445 open to the same source(s)"
+    fi
     echo "meet-fw ($ROLE): tcp $DST:$PORT open to ${#SOURCES[@]} source(s)${SOURCES[*]:+: ${SOURCES[*]}}; everything else dropped"
     ;;
   remove)
-    our_rules | delete_rules
+    delete_tagged DOCKER-USER "$TAG-"
     if iptables -w -S "$CHAIN" >/dev/null 2>&1; then iptables -w -F "$CHAIN"; iptables -w -X "$CHAIN"; fi
+    if [ "$ROLE" = shard ]; then
+      delete_tagged INPUT "$TAG-peers-"
+      if iptables -w -S TC-MEET-PEERS >/dev/null 2>&1; then iptables -w -F TC-MEET-PEERS; iptables -w -X TC-MEET-PEERS; fi
+    fi
     echo "meet-fw ($ROLE): removed (tcp $DST:$PORT is no longer filtered)"
     ;;
   status)

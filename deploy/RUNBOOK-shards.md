@@ -33,11 +33,23 @@ before (`install.sh` does not touch HAProxy, ports or firewalls for shards).
   HAProxy computes the same shard for a room whatever the order of
   `shards.list`. All other requests go to any healthy shard (every shard
   serves the same pages).
+- **Rooms stay put.** A stick table (room → shard), shared by all shard
+  HAProxies over `peers` on each shard's private IP, port 8445, wins over the
+  hash. So a room that moved while its shard was down stays on its new shard
+  after the old one recovers; without it, late joiners would hash back to the
+  recovered shard and the room would split in two. Entries expire 12 h after
+  last use; only rooms without an entry are placed by the hash.
 - **Health.** HAProxy checks each shard's web every 2 s:
   `/talkchief-shard-health` (web → Jicofo's REST API) and `/http-bind`
   (web → Prosody). Two failures mark the shard down and cut its sessions;
   its rooms then hash to the remaining shards and clients reconnect there.
-  HAProxy refuses `/talkchief-shard-health` from clients.
+  `/talkchief-shard-health` answers only HAProxy's checks (private source
+  address plus a header HAProxy strips from client requests); everyone else
+  gets 404, also on single-host installs.
+- **Load-balancer check.** `/talkchief-haproxy-health` is answered by HAProxy
+  itself: 200 while it can reach at least one shard, 503 otherwise.
+- **Logs.** HAProxy logs the method, path and room key, never the query
+  string (meeting URLs carry the participant's JWT).
 - **Secrets are shared.** All shards use the same JWT key pair (Cowork signs
   one token for any shard), the same XMPP component passwords (each bridge
   logs in to every shard with one password) and the same TURN secret.
@@ -50,7 +62,9 @@ before (`install.sh` does not touch HAProxy, ports or firewalls for shards).
   `COMPOSE_FILE` (adds `docker-compose.shard.yml`) and moves the web
   container to `SHARD_PRIVATE_IP:8000/8443`.
 - **Firewalls.** `talkchief-meet-shard-fw` (`meet-fw.sh --role shard`) lets
-  only the hosts in `shards.list` reach the web's private 8443. Prosody 5222
+  only the hosts in `shards.list` reach the web's private 8443 (Docker,
+  DOCKER-USER) and HAProxy's peers port 8445 (host network, INPUT). The web's
+  plain HTTP port stays on 127.0.0.1. Prosody 5222
   stays limited to `bridges.allow` (every shard needs every bridge listed).
   On bridges, 8080 is open to `MAIN_PRIVATE_IP` and every `SHARD_PRIVATE_IPS`.
 - **Cowork** needs no change: it links to `meet.talkchief.io` and receives
@@ -87,7 +101,10 @@ through HAProxy and behaves as before):
 
 1. **Server**: same private network as the other meeting hosts, Cloud
    Firewall with inbound TCP 80/443 and UDP 10000 (its local jvb) and the
-   TURN ports, sshd on the private IP only, Docker + compose.
+   TURN ports, sshd on the private IP only, Docker + compose. Shard hosts talk
+   to each other on the private network on 8443 (web) and 8445 (HAProxy
+   peers); `talkchief-meet-shard-fw` limits both to the hosts in
+   `shards.list`.
 2. **Bundle** on an existing shard (from its deploy checkout):
    `deploy/scripts/shard-bundle.sh <private-ip> <public-ip> <name>`.
    It adds the shard to this host's `shards.list` and writes
@@ -142,10 +159,16 @@ through HAProxy and behaves as before):
 
 On the shard that stays: `rm /opt/talkchief-meet/shards.list` (keep or delete
 `host.env`), run `install.sh` (zero conferences): HAProxy is removed, web
-returns to 443, the shard firewall unit stays installed but is no longer
-needed (`talkchief-meet-fw --role shard disable` removes the Docker
-dependency, `--role shard remove` the rules). Point `meet.talkchief.io` back at
+returns to 443, and `install.sh` disables the shard firewall unit (Docker no
+longer requires it) and removes its rules. Point `meet.talkchief.io` back at
 the host, re-join the bridges with a single `XMPP_SERVER`.
+
+## Operating notes
+
+- Restarting a shard's Prosody by hand (not through `install.sh`) leaves its
+  local jvb non-operational until the jvb restarts too (the #16 lesson);
+  `docker compose restart jvb jicofo` after Prosody, or run `install.sh`.
+  Remote bridges reconnect on their own.
 
 ## Limits
 
