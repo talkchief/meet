@@ -3,6 +3,10 @@
 # Idempotent: secrets in /opt/talkchief-meet/.env and the RS256 keypair are
 # generated once and never overwritten. Run as root from the deploy/ checkout.
 set -euo pipefail
+# The containers read these files as other users (nginx 101, coturn 65534,
+# Jitsi 1000): directories and public files must be world-readable whatever
+# umask the caller had. Secrets get explicit modes below.
+umask 022
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 DEST=/opt/talkchief-meet
 source "$HERE/VERSION"
@@ -33,6 +37,7 @@ sed -i 's#context: ./web#context: ./web-tc#' "$DEST/docker-compose.override.yml"
 rm -rf "$DEST/monitor-tc" && cp -r "$HERE/monitor" "$DEST/monitor-tc"
 sed -i 's#context: ./monitor#context: ./monitor-tc#' "$DEST/docker-compose.override.yml"
 mkdir -p "$DEST/asap" "$DEST/coturn"
+chmod 755 "$DEST/asap" "$DEST/coturn"
 
 # 3. .env: upstream example + TalkChief overrides + secrets (first run only).
 if [ ! -f "$DEST/.env" ]; then
@@ -46,6 +51,39 @@ else
   # Re-apply non-secret overrides on upgrade: later keys win in docker compose .env.
   sed -i '/^# >>> talkchief overrides/,/^# <<< talkchief overrides/d' "$DEST/.env"
   { echo "# >>> talkchief overrides"; cat "$HERE/env.talkchief"; echo "JITSI_IMAGE_VERSION=$DJM_TAG"; echo "# <<< talkchief overrides"; } >> "$DEST/.env"
+fi
+
+# 3b. Shards (RUNBOOK-shards.md). Default off: a host without
+# /opt/talkchief-meet/shards.list runs exactly as before. With it, HAProxy
+# takes ports 80/443 (shard/haproxy.cfg.template) and the web container moves
+# to SHARD_PRIVATE_IP:8443. Per-host settings (this shard's addresses) live in
+# /opt/talkchief-meet/host.env and are re-applied after the managed block
+# above, so they win over env.talkchief.
+hostval() { [ -f "$DEST/host.env" ] && grep -E "^$1=" "$DEST/host.env" | tail -1 | cut -d= -f2- || true; }
+is_private_ip() { case "$1" in 10.*|192.168.*|172.1[6-9].*|172.2[0-9].*|172.3[01].*) return 0 ;; *) return 1 ;; esac; }
+is_local_ip() { ip -4 -o addr show | awk '{print $4}' | cut -d/ -f1 | grep -qxF "$1"; }
+SHARD_MODE=0
+if [ -f "$DEST/shards.list" ]; then
+  SHARD_MODE=1
+  SHARD_IP=$(hostval SHARD_PRIVATE_IP)
+  is_private_ip "$SHARD_IP" && is_local_ip "$SHARD_IP" || {
+    echo "shard mode ($DEST/shards.list exists): SHARD_PRIVATE_IP in $DEST/host.env must be this host's private IP" >&2; exit 1; }
+  grep -Eq "^[[:space:]]*${SHARD_IP//./\.}([[:space:]]|$)" "$DEST/shards.list" || {
+    echo "shard mode: this host ($SHARD_IP) is not listed in $DEST/shards.list" >&2; exit 1; }
+fi
+sed -i '/^# >>> host overrides/,/^# <<< host overrides/d' "$DEST/.env"
+if [ -f "$DEST/host.env" ] || [ "$SHARD_MODE" = 1 ]; then
+  {
+    echo "# >>> host overrides"
+    [ -f "$DEST/host.env" ] && grep -E '^[A-Z_][A-Z0-9_]*=' "$DEST/host.env" || true
+    if [ "$SHARD_MODE" = 1 ]; then
+      echo "COMPOSE_FILE=docker-compose.yml:docker-compose.override.yml:docker-compose.shard.yml"
+      echo "HTTP_PORT=$SHARD_IP:8000"
+      echo "HTTPS_PORT=$SHARD_IP:8443"
+      echo "ENABLE_HTTP_REDIRECT=0"
+    fi
+    echo "# <<< host overrides"
+  } >> "$DEST/.env"
 fi
 
 # 4. RS256 keypair for JWTs (private key is handed to the Cowork meetings plugin, never served).
@@ -82,7 +120,11 @@ cp "$HERE"/prosody/plugins/*.lua "$CFG/prosody/prosody-plugins-custom/"
 chown -R 1000:1000 "$CFG"
 [ -f "$CFG/web/keys/cert.key" ] && chmod 600 "$CFG/web/keys/cert.key"
 TS=$(grep -E '^TURN_CREDENTIALS=' "$DEST/.env" | tail -1 | cut -d= -f2)
-sed "s/__TURN_SECRET__/$TS/" "$HERE/coturn/turnserver.conf.template" > "$DEST/coturn/turnserver.conf"
+# The template carries the main host's public IP; another shard relays on its
+# own (JVB_ADVERTISE_IPS from host.env, the last value in .env).
+TURN_IP=$(grep -E '^JVB_ADVERTISE_IPS=' "$DEST/.env" | tail -1 | cut -d= -f2 | cut -d, -f1)
+[[ $TURN_IP =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || TURN_IP=46.225.31.248
+sed -e "s/__TURN_SECRET__/$TS/" -e "s/46\.225\.31\.248/$TURN_IP/g" "$HERE/coturn/turnserver.conf.template" > "$DEST/coturn/turnserver.conf"
 chmod 644 "$DEST/coturn/turnserver.conf"
 # coturn runs as nobody (65534): give it a private copy of the TalkChief wildcard cert.
 if [ -f "$DEST/certs/turn.crt" ] && [ -f "$DEST/certs/turn.key" ]; then
@@ -91,6 +133,46 @@ if [ -f "$DEST/certs/turn.crt" ] && [ -f "$DEST/certs/turn.key" ]; then
   install -m 0400 -o 65534 -g 65534 "$DEST/certs/turn.key" "$DEST/coturn/certs/turn.key"
 else
   echo "WARN: $DEST/certs/turn.{crt,key} missing; TURNS (5349) will not start" >&2
+fi
+
+# Shard entry config (shard mode). Rendered and checked with the pinned
+# HAProxy image before it replaces the live file; HAProxy reloads it below
+# without dropping connections.
+haproxy_sum() { { cat "$DEST/haproxy/haproxy.cfg" "$DEST/haproxy/meet.pem" 2>/dev/null || true; } | sha256sum; }
+before_haproxy=$(haproxy_sum)
+if [ "$SHARD_MODE" = 1 ]; then
+  cp "$HERE/shard/docker-compose.shard.yml" "$DEST/"
+  [ -f "$CFG/web/keys/cert.crt" ] && [ -f "$CFG/web/keys/cert.key" ] || {
+    echo "shard mode: $CFG/web/keys/cert.{crt,key} missing (HAProxy terminates TLS with the web certificate)" >&2; exit 1; }
+  install -d -m 0700 "$DEST/haproxy"
+  tmp=$(mktemp -d "$DEST/haproxy/.new.XXXXXX")
+  cat "$CFG/web/keys/cert.crt" "$CFG/web/keys/cert.key" > "$tmp/meet.pem"
+  python3 - "$HERE/shard/haproxy.cfg.template" "$DEST/shards.list" "$tmp/haproxy.cfg" <<'PY'
+import ipaddress, re, sys
+tpl, lst, out = sys.argv[1:]
+servers = []
+for raw in open(lst):
+    line = raw.split("#", 1)[0].split()
+    if not line:
+        continue
+    ip, name = line[0], (line[1] if len(line) > 1 else "shard-" + line[0].replace(".", "-"))
+    if not ipaddress.ip_address(ip).is_private or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,30}", name):
+        sys.exit(f"shards.list: bad entry {raw.strip()!r}")
+    # A stable id from the address (unique in 10.0.0.0/8): the consistent-hash
+    # ring is built from server ids, so every shard host gets the same ring.
+    a = ipaddress.ip_address(ip).packed
+    servers.append(f"    server {name} {ip}:8443 id {a[1] * 65536 + a[2] * 256 + a[3] + 1}")
+if not servers:
+    sys.exit("shards.list lists no shard")
+open(out, "w").write(open(tpl).read().replace("@SERVERS@", chr(10).join(servers)))
+PY
+  HAPROXY_IMAGE=$(python3 -c 'import re,sys; print(re.search(r"image:\s*(\S+)", open(sys.argv[1]).read()).group(1))' "$HERE/shard/docker-compose.shard.yml")
+  docker run --rm --user 0:0 -v "$tmp:/usr/local/etc/haproxy:ro" "$HAPROXY_IMAGE" haproxy -c -q -f /usr/local/etc/haproxy/haproxy.cfg || {
+    echo "shard mode: rendered HAProxy config does not validate (kept in $tmp)" >&2; exit 1; }
+  chmod 600 "$tmp/meet.pem" "$tmp/haproxy.cfg"
+  mv -f "$tmp/meet.pem" "$DEST/haproxy/meet.pem"; mv -f "$tmp/haproxy.cfg" "$DEST/haproxy/haproxy.cfg"; rmdir "$tmp"
+else
+  rm -f "$DEST/docker-compose.shard.yml"
 fi
 
 # Call diagnostics (events nginx writes them; nginx runs as uid 101): kept 14 days.
@@ -127,6 +209,14 @@ systemctl daemon-reload
 # never starts without the allowlist; a running Docker is not restarted.
 if [ -f "$DEST/bridges.allow" ] || [ "${C2S_BIND#127.}" = "$C2S_BIND" ]; then
   /usr/local/sbin/talkchief-meet-fw --role main enable
+fi
+install -m 0644 "$HERE/scripts/talkchief-meet-shard-fw.service" /etc/systemd/system/talkchief-meet-shard-fw.service
+systemctl daemon-reload
+# Shard mode: the web container's 8443 is published on the private IP only
+# for the other shard hosts' HAProxy; the allowlist is applied before compose
+# publishes it.
+if [ "$SHARD_MODE" = 1 ]; then
+  /usr/local/sbin/talkchief-meet-fw --role shard enable
 fi
 
 # Restarting prosody, jicofo or jvb drops every live meeting, and
@@ -211,6 +301,10 @@ else
     wait_for_idle "restart web"
     docker compose restart web
   fi
+fi
+# HAProxy reads its config once: reload it in place (live connections stay).
+if [ "$SHARD_MODE" = 1 ] && [ "$before_haproxy" != "$(haproxy_sum)" ] && [ -n "$(docker compose ps -q haproxy 2>/dev/null)" ]; then
+  docker compose kill -s USR2 haproxy
 fi
 # events.conf is a mounted file: reload it (harmless when unchanged).
 docker compose exec -T events nginx -s reload || true

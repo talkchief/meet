@@ -9,10 +9,15 @@
 #                 sources: /opt/talkchief-meet/bridges.allow, one private IPv4
 #                 per line ("#" starts a comment). No file = nobody.
 #   --role bridge (bridge node): JVB colibri 8080 on BRIDGE_PRIVATE_IP from
-#                 /opt/talkchief-meet-bridge/.env. Allowed source: MAIN_PRIVATE_IP
-#                 (the main host's monitor).
+#                 /opt/talkchief-meet-bridge/.env. Allowed sources: MAIN_PRIVATE_IP
+#                 (the main host's monitor) and, with shards, every address
+#                 in SHARD_PRIVATE_IPS (comma list) from the same file.
+#   --role shard  (shard host, shard mode only): the web container's HTTPS
+#                 8443 on SHARD_PRIVATE_IP from /opt/talkchief-meet/.env.
+#                 Allowed sources: the shard hosts in
+#                 /opt/talkchief-meet/shards.list ("<private-ip> <name>").
 #
-# Usage: meet-fw.sh [--role main|bridge] apply|remove|status|enable|disable
+# Usage: meet-fw.sh [--role main|bridge|shard] apply|remove|status|enable|disable
 #
 # apply is idempotent and atomic: the allowlist chain is rebuilt in one
 # iptables-restore transaction, so the port is never briefly open. Everything
@@ -38,7 +43,7 @@
 # `remove` or a reboot).
 set -euo pipefail
 
-USAGE="usage: $0 [--role main|bridge] apply|remove|status|enable|disable"
+USAGE="usage: $0 [--role main|bridge|shard] apply|remove|status|enable|disable"
 ROLE=main
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -53,7 +58,8 @@ case "$ACTION" in apply|remove|status|enable|disable) ;; *) echo "$USAGE" >&2; e
 case "$ROLE" in
   main) UNIT=talkchief-meet-fw.service ;;
   bridge) UNIT=talkchief-meet-bridge-fw.service ;;
-  *) echo "meet-fw: unknown role '$ROLE' (main or bridge)" >&2; exit 64 ;;
+  shard) UNIT=talkchief-meet-shard-fw.service ;;
+  *) echo "meet-fw: unknown role '$ROLE' (main, bridge or shard)" >&2; exit 64 ;;
 esac
 DROPIN_DIR=${MEET_FW_SYSTEMD_DIR:-/etc/systemd/system}/docker.service.d
 DROPIN=$DROPIN_DIR/10-$UNIT.conf
@@ -93,6 +99,19 @@ is_private_ipv4() {   # RFC 1918
   local a b; IFS=. read -r a b _ _ <<<"$1"
   [ "$a" -eq 10 ] || { [ "$a" -eq 172 ] && [ "$b" -ge 16 ] && [ "$b" -le 31 ]; } || { [ "$a" -eq 192 ] && [ "$b" -eq 168 ]; }
 }
+# Allowlist file reader: one private IPv4 first on each line ("#" comments).
+read_allow() {
+  local file=$1 line ip
+  if [ -e "$file" ] && ! [ -r "$file" ]; then
+    echo "meet-fw: cannot read $file; allowing nobody" >&2; return 0
+  fi
+  [ -f "$file" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%%#*}; read -r ip _ <<<"$line" || true
+    [ -n "${ip:-}" ] || continue
+    if is_private_ipv4 "$ip"; then SOURCES+=("$ip"); else echo "meet-fw: ignoring '$ip' in $file (not a private IPv4 address)" >&2; fi
+  done <"$file"
+}
 # Last value wins, like docker compose and scripts/install.sh.
 envval() { [ -r "$1" ] && grep -E "^$2=" "$1" | tail -1 | cut -d= -f2- | tr -d '"'"'"'\r' || true; }
 
@@ -127,6 +146,19 @@ case "$ROLE" in
     is_private_ipv4 "$DST" || { echo "meet-fw: BRIDGE_PRIVATE_IP missing or invalid in $DEST/.env" >&2; exit 1; }
     is_private_ipv4 "$main_ip" || { echo "meet-fw: MAIN_PRIVATE_IP missing or invalid in $DEST/.env" >&2; exit 1; }
     SOURCES=("$main_ip")
+    IFS=, read -ra shard_ips <<<"$(envval "$DEST/.env" SHARD_PRIVATE_IPS)"
+    for ip in "${shard_ips[@]}"; do
+      ip=${ip// /}; [ -n "$ip" ] || continue
+      if is_private_ipv4 "$ip"; then SOURCES+=("$ip"); else echo "meet-fw: ignoring '$ip' in SHARD_PRIVATE_IPS (not a private IPv4 address)" >&2; fi
+    done
+    ;;
+  shard)
+    DEST=${MEET_DEST:-/opt/talkchief-meet}
+    PORT=8443
+    CHAIN=TC-MEET-SHARD
+    DST=$(envval "$DEST/.env" SHARD_PRIVATE_IP)
+    is_private_ipv4 "$DST" || { echo "meet-fw: SHARD_PRIVATE_IP missing or invalid in $DEST/.env" >&2; exit 1; }
+    read_allow "${MEET_SHARDS_LIST:-$DEST/shards.list}"
     ;;
 esac
 
