@@ -14,6 +14,9 @@ services:
     tmpfs:
       - /var/run
       - /tmp
+    # TC_STARTED: when this container started (shard/haproxy.cfg.template
+    # uses it for the startup grace). A reload (SIGUSR2) keeps the value.
+    entrypoint: ["/bin/sh", "-c", "export TC_STARTED=$$(date +%s); exec docker-entrypoint.sh haproxy -f /usr/local/etc/haproxy/haproxy.cfg"]
     volumes:
       - ./haproxy:/usr/local/etc/haproxy:ro
     depends_on:

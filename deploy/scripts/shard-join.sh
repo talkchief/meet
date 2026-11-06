@@ -61,7 +61,7 @@ for _ in $(seq 1 60); do
 done
 curl -fsS --max-time 3 -o /dev/null http://127.0.0.1:8888/stats || die "jicofo does not answer after 5 min (docker compose logs jicofo)"
 ok "jicofo answers"
-curl -fsSk --max-time 5 -o /dev/null "https://$SELF:8443/talkchief-shard-health" || die "shard health (web → jicofo) does not answer on $SELF:8443"
+curl -fsSk --max-time 5 -o /dev/null -H 'X-Talkchief-Shard-Check: 1' "https://$SELF:8443/talkchief-shard-health" || die "shard health (web → jicofo) does not answer on $SELF:8443"
 ok "shard health on $SELF:8443"
 curl -fsSk --max-time 5 -o /dev/null https://127.0.0.1/talkchief-haproxy-health || die "HAProxy does not answer on 443"
 ok "HAProxy on 443"

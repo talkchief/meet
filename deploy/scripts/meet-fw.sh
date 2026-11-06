@@ -182,22 +182,34 @@ RULE=(-p tcp -m conntrack --ctorigdst "$DST/32" --ctorigdstport "$PORT" --ctdir 
 # prints `--ctorigdst 10.1.0.44` for a rule added with 10.1.0.44/32).
 #   tagged_comments CHAIN PREFIX [KEEP]: comments starting with PREFIX, except KEEP
 tagged_comments() {
-  { iptables -w -S "$1" 2>/dev/null || true; } | awk -v tag="$2" -v keep="${3:-}" '
-    { for (i = 1; i < NF; i++) if ($i == "--comment" && index($(i + 1), tag) == 1 && $(i + 1) != keep) print $(i + 1) }' | sort -u
+  local rules
+  rules=$(iptables -w -S "$1") || { echo "meet-fw: cannot list chain $1" >&2; return 1; }
+  awk -v tag="$2" -v keep="${3:-}" '
+    { for (i = 1; i < NF; i++) if ($i == "--comment" && index($(i + 1), tag) == 1 && $(i + 1) != keep) print $(i + 1) }' <<<"$rules" | sort -u
 }
 #   delete_tagged CHAIN PREFIX [KEEP]
 delete_tagged() {
-  local chain=$1 c n
+  local chain=$1 comments c listing n
+  comments=$(tagged_comments "$chain" "$2" "${3:-}") || return 1
   while IFS= read -r c; do
     [ -n "$c" ] || continue
-    # Highest number first, so the remaining numbers stay valid.
-    for n in $(iptables -w -L "$chain" -n --line-numbers 2>/dev/null | awk -v c="/* $c */" 'index($0, c) {print $1}' | sort -rn); do
+    listing=$(iptables -w -L "$chain" -n --line-numbers) || { echo "meet-fw: cannot list chain $chain" >&2; return 1; }
+    # Highest number first, so the remaining numbers stay valid (all changes
+    # run under the lock taken below, so no other role renumbers meanwhile).
+    for n in $(awk -v c="/* $c */" 'index($0, c) {print $1}' <<<"$listing" | sort -rn); do
       iptables -w -D "$chain" "$n"
     done
-  done < <(tagged_comments "$chain" "$2" "${3:-}")
+  done <<<"$comments"
 }
 # Our DOCKER-USER rules, for status.
 our_rules() { { iptables -w -S DOCKER-USER 2>/dev/null || true; } | grep -F -- "--comment $TAG-" || true; }
+
+# One firewall change at a time across roles: rule numbers used by
+# delete_tagged must not move under us.
+if [ "$ACTION" = apply ] || [ "$ACTION" = remove ]; then
+  exec 8>/run/talkchief-meet-fw.lock
+  flock -w 60 8 || { echo "meet-fw: another meet-fw run holds /run/talkchief-meet-fw.lock" >&2; exit 1; }
+fi
 
 case "$ACTION" in
   apply)
@@ -218,7 +230,9 @@ case "$ACTION" in
       {
         echo '*filter'
         echo ":TC-MEET-PEERS - [0:0]"
-        for s in "${SOURCES[@]}"; do echo "-A TC-MEET-PEERS -s $s/32 -j RETURN"; done
+        # ACCEPT, not RETURN: on INPUT a RETURN would fall through to the
+        # host's default policy (ufw drops by default).
+        for s in "${SOURCES[@]}"; do echo "-A TC-MEET-PEERS -s $s/32 -j ACCEPT"; done
         echo "-A TC-MEET-PEERS -j DROP"
         echo 'COMMIT'
       } | iptables-restore -w --noflush

@@ -115,6 +115,11 @@ cp "$HERE/web/custom-config.js" "$HERE/web/custom-interface_config.js" "$CFG/web
 BRAND_V=$(sha256sum "$HERE/web/branding/static/talkchief-branding.json" | cut -c1-12)
 sed -i "s#static/talkchief-branding.json'#static/talkchief-branding.json?v=${BRAND_V}'#" "$CFG/web/custom-config.js"
 mkdir -p "$CFG/web/nginx" && cp "$HERE/web/custom-meet.conf" "$CFG/web/nginx/custom-meet.conf"
+# The shard health page exists only in shard mode (behind HAProxy, which
+# strips the check header from clients).
+if [ "$SHARD_MODE" != 1 ]; then
+  sed -i '/^# >>> shard health/,/^# <<< shard health/d' "$CFG/web/nginx/custom-meet.conf"
+fi
 cp "$HERE"/prosody/plugins/*.lua "$CFG/prosody/prosody-plugins-custom/"
 # The Jitsi images run as uid/gid 1000 (s6); every host volume, including the
 # TLS key in web/keys, must belong to that user.
@@ -178,7 +183,7 @@ cfg = open(tpl).read().replace("@SERVERS@", chr(10).join(servers))
 open(out, "w").write(cfg.replace("@PEERS@", chr(10).join(peers)).replace("@LOCALPEER@", local))
 PY
   HAPROXY_IMAGE=$(python3 -c 'import re,sys; print(re.search(r"image:\s*(\S+)", open(sys.argv[1]).read()).group(1))' "$HERE/shard/docker-compose.shard.yml")
-  docker run --rm --user 0:0 -v "$tmp:/usr/local/etc/haproxy:ro" "$HAPROXY_IMAGE" haproxy -c -q -f /usr/local/etc/haproxy/haproxy.cfg || {
+  docker run --rm --user 0:0 -e TC_STARTED=0 -v "$tmp:/usr/local/etc/haproxy:ro" "$HAPROXY_IMAGE" haproxy -c -q -f /usr/local/etc/haproxy/haproxy.cfg || {
     echo "shard mode: rendered HAProxy config does not validate (kept in $tmp)" >&2; exit 1; }
   chmod 600 "$tmp/meet.pem" "$tmp/haproxy.cfg"
   mv -f "$tmp/meet.pem" "$DEST/haproxy/meet.pem"; mv -f "$tmp/haproxy.cfg" "$DEST/haproxy/haproxy.cfg"; rmdir "$tmp"

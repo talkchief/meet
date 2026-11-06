@@ -25,6 +25,9 @@ global
     maxconn 20000
     tune.ssl.default-dh-param 2048
     localpeer @LOCALPEER@
+    # Start time of this HAProxy (TC_STARTED, set once when the container
+    # starts; a config reload keeps it). See the startup grace below.
+    set-var proc.started env(TC_STARTED),add(0)
 
 peers shards
 @PEERS@
@@ -45,7 +48,6 @@ defaults
 frontend meet
     bind :80
     bind :443 ssl crt /usr/local/etc/haproxy/meet.pem alpn http/1.1
-    http-request redirect scheme https code 301 unless { ssl_fc }
     # The load balancer's health check: HAProxy itself is up (it then routes
     # around any dead shard on its own).
     monitor-uri /talkchief-haproxy-health
@@ -53,6 +55,13 @@ frontend meet
     # sending clients here.
     acl no_shard nbsrv(shards_xmpp) lt 1
     monitor fail if no_shard
+    # ...and not during the first 30 s after a start: a restarted HAProxy has
+    # an empty stick table until its peers resync it (milliseconds when they
+    # are reachable). Without the grace it could send a late joiner to the
+    # hash shard while the room's earlier participants are on another one.
+    acl starting date,sub(proc.started) lt 30
+    monitor fail if starting
+    http-request redirect scheme https code 301 unless { ssl_fc }
     # Shard health is for HAProxy's own checks only.
     http-request deny deny_status 404 if { path_end /talkchief-shard-health }
     # Only HAProxy's own checks carry this header (web/custom-meet.conf).

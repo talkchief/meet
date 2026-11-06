@@ -45,9 +45,13 @@ before (`install.sh` does not touch HAProxy, ports or firewalls for shards).
   its rooms then hash to the remaining shards and clients reconnect there.
   `/talkchief-shard-health` answers only HAProxy's checks (private source
   address plus a header HAProxy strips from client requests); everyone else
-  gets 404, also on single-host installs.
+  gets 404. A host without shards does not have the page at all
+  (`install.sh` removes it from the web config).
 - **Load-balancer check.** `/talkchief-haproxy-health` is answered by HAProxy
-  itself: 200 while it can reach at least one shard, 503 otherwise.
+  itself: 200 while it can reach at least one shard, 503 otherwise, and 503
+  for the first 30 s after the HAProxy container starts (its stick table is
+  resynced from the peers in that time, so it never places a room before it
+  knows where the room lives). A config reload keeps serving 200.
 - **Logs.** HAProxy logs the method, path and room key, never the query
   string (meeting URLs carry the participant's JWT).
 - **Secrets are shared.** All shards use the same JWT key pair (Cowork signs
@@ -165,6 +169,11 @@ the host, re-join the bridges with a single `XMPP_SERVER`.
 
 ## Operating notes
 
+- Peers (8445) must be reachable between all shard hosts; if they are not,
+  a restarted HAProxy starts with an empty room table after its 30 s grace
+  and late joiners of a moved room could land on the hash shard. Check with
+  `ss -tn state established '( sport = :8445 or dport = :8445 )'` on each
+  shard host (one connection per other shard).
 - Restarting a shard's Prosody by hand (not through `install.sh`) leaves its
   local jvb non-operational until the jvb restarts too (the #16 lesson);
   `docker compose restart jvb jicofo` after Prosody, or run `install.sh`.
