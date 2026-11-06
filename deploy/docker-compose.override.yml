@@ -33,6 +33,13 @@ services:
   prosody:
     environment:
       - TALKCHIEF_EVENTS_SECRET=${TALKCHIEF_EVENTS_SECRET:-}
+    # Client port for remote video bridges (deploy/bridge/,
+    # RUNBOOK-bridge-node.md). The default 127.0.0.1 makes nothing reachable
+    # off this host. The bridge runbook sets PROSODY_C2S_BIND to the private IP
+    # (10.1.0.44) in a zero-conference window; install.sh then requires the
+    # talkchief-meet-fw allowlist (scripts/meet-fw.sh) before it starts.
+    ports:
+      - "${PROSODY_C2S_BIND:-127.0.0.1}:5222:5222"
 
   # TURN relay for clients behind restrictive NAT/firewalls. Ephemeral
   # credentials are issued by prosody from the shared TURN_CREDENTIALS secret.
@@ -50,7 +57,7 @@ services:
   # the meeting services' Docker logs (read-only) and checks each service every
   # minute (monitor/monitor.py). The DSN is the project's public key.
   monitor:
-    image: talkchief/meet-monitor:5
+    image: talkchief/meet-monitor:6
     build:
       context: ./monitor
     restart: ${RESTART_POLICY:-unless-stopped}
@@ -60,6 +67,10 @@ services:
       - SENTRY_ENVIRONMENT=production
       - COMPOSE_PROJECT=${COMPOSE_PROJECT_NAME:-talkchief-meet}
       - TURN_HOST=${JVB_ADVERTISE_IPS:-46.225.31.248}
+      # Remote bridge nodes to check (comma list of private IPs), empty = none.
+      # EXPECTED_BRIDGES defaults to 1 (this host's jvb) + the number listed.
+      - BRIDGES=${MONITOR_BRIDGES:-}
+      - EXPECTED_BRIDGES=${MONITOR_EXPECTED_BRIDGES:-}
     # Host network: jicofo and the bridge publish their status only on the
     # host's 127.0.0.1. The monitor listens on nothing.
     network_mode: host

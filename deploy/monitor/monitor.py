@@ -18,8 +18,22 @@ Two jobs, both in this one small process:
 Logs are read from /dockerlogs (the host's /var/lib/docker/containers,
 mounted read-only). Tokens, passwords, e-mail and IP addresses are removed
 before anything is sent.
+
+Optional, for extra video bridge nodes (RUNBOOK-bridge-node.md):
+
+* BRIDGES (main host): comma list of bridge nodes' private IPs. Each gets a
+  meet-jvb-<ip> check of http://<ip>:8080/about/health, and a warning issue
+  opens while jicofo sees fewer operational bridges than EXPECTED_BRIDGES
+  (default 1 for this host's jvb + the number listed).
+* MONITOR_ROLE=bridge (on a bridge node): follows only the jvb log, checks
+  only the local jvb, and sends no cron check-in (the main host's BRIDGES
+  check covers the node). SENTRY_SERVER_NAME names the node.
+* TURN_HOST may be a comma list; private addresses in it are skipped.
+
+With none of these set, the checks are exactly the six above.
 """
 import glob
+import ipaddress
 import json
 import os
 import re
@@ -35,12 +49,83 @@ import sentry_sdk
 from sentry_sdk.crons import capture_checkin
 from sentry_sdk.crons.consts import MonitorStatus
 
+def parse_role(value):
+    """MONITOR_ROLE: unset or 'main' for the main meeting host, 'bridge' for a bridge node."""
+    role = (value or '').strip().lower() or 'main'
+    if role not in ('main', 'bridge'):
+        raise SystemExit('MONITOR_ROLE must be "main", "bridge" or unset, not %r' % value)
+    return role
+
+
+def parse_bridges(value):
+    """BRIDGES: comma list of IPv4 addresses -> (addresses in order without duplicates, rejected entries)."""
+    ips, rejected = [], []
+    for item in (value or '').split(','):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            ip = str(ipaddress.IPv4Address(item))
+        except ValueError:
+            rejected.append(item)
+            continue
+        if ip not in ips:
+            ips.append(ip)
+    return ips, rejected
+
+
+def parse_turn_hosts(value):
+    """TURN_HOST: comma list -> (hosts to check, skipped private addresses).
+
+    coturn listens on public addresses only (and refuses to relay to private
+    ones), so a private or loopback address is never a TURN server. One shows
+    up when TURN_HOST is fed from JVB_ADVERTISE_IPS and that becomes
+    'public,private'; it is skipped instead of failing meet-turn.
+    """
+    hosts, skipped = [], []
+    for item in (value or '').split(','):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            ip = ipaddress.ip_address(item)
+        except ValueError:
+            ip = None                                   # a host name
+        if ip is not None and (ip.is_private or ip.is_loopback or ip.is_link_local):
+            skipped.append(item)
+        elif item not in hosts:
+            hosts.append(item)
+    return hosts, skipped
+
+
+def parse_expected_bridges(value, bridges):
+    """EXPECTED_BRIDGES, default 1 (this host's jvb) + the remote bridges."""
+    try:
+        n = int((value or '').strip())
+        if n >= 1:
+            return n
+    except ValueError:
+        pass
+    return 1 + len(bridges)
+
+
+def bridges_short(operational, expected):
+    """True while some, but not all, expected bridges are operational (none is the meet-bridge check's job)."""
+    return isinstance(operational, int) and not isinstance(operational, bool) and 0 < operational < expected
+
+
+ROLE = parse_role(os.environ.get('MONITOR_ROLE'))
 LOG_ROOT = os.environ.get('DOCKER_LOGS', '/dockerlogs')
-SERVICES = {'jicofo', 'jvb', 'prosody', 'web', 'coturn'}
+SERVICES = {'jvb'} if ROLE == 'bridge' else {'jicofo', 'jvb', 'prosody', 'web', 'coturn'}
 PROJECT = os.environ.get('COMPOSE_PROJECT', '')
 THROTTLE = 600
 TURN_HOST = os.environ.get('TURN_HOST', '46.225.31.248')
+TURN_HOSTS, TURN_SKIPPED = parse_turn_hosts(TURN_HOST)
+BRIDGES, BRIDGES_REJECTED = parse_bridges(os.environ.get('BRIDGES', '')) if ROLE == 'main' else ([], [])
+EXPECTED_BRIDGES = parse_expected_bridges(os.environ.get('EXPECTED_BRIDGES', ''), BRIDGES)
 HEALTH_SLUG = os.environ.get('HEALTH_MONITOR', 'meet-health')
+SERVER_NAME = (os.environ.get('SENTRY_SERVER_NAME', '').strip()
+               or ('meet-bridge-' + socket.gethostname() if ROLE == 'bridge' else 'meet.talkchief.io'))
 
 sentry_sdk.init(
     dsn=os.environ['SENTRY_DSN'],
@@ -48,11 +133,13 @@ sentry_sdk.init(
     release=os.environ.get('SENTRY_RELEASE', 'meet-server'),
     send_default_pii=False,
     traces_sample_rate=0,
-    server_name='meet.talkchief.io',
+    server_name=SERVER_NAME,
     default_integrations=False,
     integrations=[],
 )
 sentry_sdk.set_tag('component', 'server')
+if ROLE == 'bridge':
+    sentry_sdk.set_tag('role', 'bridge')
 
 
 def log(*a):
@@ -297,24 +384,49 @@ def jicofo_stats():
         return None
 
 
+# The operational bridge count bridge_ok last saw (None: jicofo unreadable).
+bridge_seen = {'operational': None}
+
+
 def bridge_ok():
     stats = jicofo_stats()
     if stats is None:
+        bridge_seen['operational'] = None
         return False, 'no jicofo stats'
     n = (stats.get('bridge_selector') or {}).get('operational_bridge_count', 0)
+    bridge_seen['operational'] = n
+    if EXPECTED_BRIDGES > 1:
+        return n >= 1, '%s of %s video bridges operational' % (n, EXPECTED_BRIDGES)
     return n >= 1, '%s operational video bridge(s)' % n
 
 
-CHECKS = {
-    'meet-jvb': lambda: http_ok('http://127.0.0.1:8080/about/health'),
-    # jicofo's /about/health is off (404) without JICOFO_ENABLE_HEALTH_CHECKS; /stats answers when it runs.
-    'meet-jicofo': lambda: http_ok('http://127.0.0.1:8888/stats'),
-    'meet-bridge': bridge_ok,          # jicofo can reach a working video bridge
-    # Prosody through the web container's /http-bind proxy: 502 when prosody is down.
-    'meet-prosody': lambda: http_ok('https://127.0.0.1/http-bind', ok=lambda s: s < 500, headers=SITE),
-    'meet-web': lambda: http_ok('https://127.0.0.1/', ok=lambda s: s < 500, headers=SITE),
-    'meet-turn': lambda: stun_ok(TURN_HOST),
-}
+def build_checks(role, bridges, turn_hosts):
+    """The health checks for this host, in reporting order."""
+    def jvb_local():
+        return http_ok('http://127.0.0.1:8080/about/health')
+
+    if role == 'bridge':
+        return {'meet-jvb': jvb_local}
+    checks = {
+        'meet-jvb': jvb_local,
+        # jicofo's /about/health is off (404) without JICOFO_ENABLE_HEALTH_CHECKS; /stats answers when it runs.
+        'meet-jicofo': lambda: http_ok('http://127.0.0.1:8888/stats'),
+        'meet-bridge': bridge_ok,          # jicofo can reach a working video bridge
+        # Prosody through the web container's /http-bind proxy: 502 when prosody is down.
+        'meet-prosody': lambda: http_ok('https://127.0.0.1/http-bind', ok=lambda s: s < 500, headers=SITE),
+        'meet-web': lambda: http_ok('https://127.0.0.1/', ok=lambda s: s < 500, headers=SITE),
+        'meet-turn': ((lambda: stun_ok(turn_hosts[0])) if turn_hosts
+                      else (lambda: (False, 'no public TURN host in TURN_HOST'))),
+    }
+    # Remote bridge nodes publish 8080 on their private IP, open to this host only.
+    for ip in bridges:
+        checks['meet-jvb-' + ip] = lambda ip=ip: http_ok('http://%s:8080/about/health' % ip)
+    for host in turn_hosts[1:]:
+        checks['meet-turn-' + host] = lambda host=host: stun_ok(host)
+    return checks
+
+
+CHECKS = build_checks(ROLE, BRIDGES, TURN_HOSTS)
 
 # Jicofo counters that only go up when something went wrong in a meeting.
 PROBLEM_COUNTERS = {
@@ -372,13 +484,30 @@ def report_unhealthy(name, detail, minutes):
         scope.set_level('error')
         scope.set_tag('service', name.replace('meet-', ''))
         scope.set_tag('check', name)
-        scope.fingerprint = ['meet-health', name]
+        # A bridge node's own checks are separate issues from the main host's.
+        scope.fingerprint = ['meet-health', name] + ([SERVER_NAME] if ROLE == 'bridge' else [])
         scope.set_context('health', {'check': name, 'detail': detail, 'failingForMinutes': minutes})
         sentry_sdk.capture_message('%s health check failing: %s' % (name, detail))
 
 
+def report_bridges_short(operational, expected, minutes):
+    """Warning while jicofo sees fewer bridges than expected, repeated at most hourly."""
+    key = ('health', 'meet-bridge-capacity')
+    if time.time() - sent_at.get(key, 0) < 3600:
+        return
+    sent_at[key] = time.time()
+    with sentry_sdk.new_scope() as scope:
+        scope.set_level('warning')
+        scope.set_tag('service', 'bridge')
+        scope.set_tag('check', 'meet-bridge-capacity')
+        scope.fingerprint = ['meet-health', 'meet-bridge-capacity']
+        scope.set_context('health', {'operational': operational, 'expected': expected, 'shortForMinutes': minutes})
+        sentry_sdk.capture_message('only %s of %s video bridges operational' % (operational, expected))
+
+
 def health_loop():
     fails = {}
+    short = 0
     while True:
         started = time.time()
         unhealthy = []
@@ -391,6 +520,22 @@ def health_loop():
             if fails[name] >= 2:                       # twice in a row, like Sentry's own threshold
                 unhealthy.append(name)
                 report_unhealthy(name, detail, fails[name])
+        if ROLE == 'bridge':
+            # No heartbeat from a bridge node: the plan has one cron monitor,
+            # and the main host's meet-jvb-<ip> check covers this node.
+            time.sleep(max(1, 60 - (time.time() - started)))
+            continue
+        if EXPECTED_BRIDGES > 1:
+            n = bridge_seen['operational']
+            if bridges_short(n, EXPECTED_BRIDGES):
+                short += 1
+                if short == 1:
+                    log('health', 'meet-bridge-capacity', 'SHORT', '%s of %s video bridges operational' % (n, EXPECTED_BRIDGES))
+                if short >= 2:
+                    report_bridges_short(n, EXPECTED_BRIDGES, short)
+            elif short:
+                short = 0
+                log('health', 'meet-bridge-capacity', 'ok', '%s of %s video bridges operational' % (n, EXPECTED_BRIDGES))
         # One heartbeat for the whole meeting server (the plan has one cron
         # monitor): error while any check keeps failing, and missing when the
         # server or this monitor is down.
@@ -403,5 +548,13 @@ def health_loop():
 
 if __name__ == '__main__':
     log('meet monitor started; services:', ', '.join(sorted(SERVICES)))
+    if ROLE == 'bridge':
+        log('role: bridge node', SERVER_NAME, '(no cron check-in)')
+    if BRIDGES:
+        log('remote bridges:', ', '.join(BRIDGES), '; expecting', EXPECTED_BRIDGES, 'operational')
+    for entry in BRIDGES_REJECTED:
+        log('ignoring BRIDGES entry (not an IPv4 address):', entry)
+    for entry in TURN_SKIPPED:
+        log('ignoring TURN_HOST entry (private address, not a TURN server):', entry)
     threading.Thread(target=health_loop, daemon=True).start()
     follow_logs()
