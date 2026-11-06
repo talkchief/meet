@@ -22,6 +22,11 @@
 # 5. docker compose up, then requires /about/health, /colibri/stats and the
 #    graceful-shutdown endpoint to answer.
 #
+# An upgrade that does not finish (failure or interruption after the drain)
+# leaves $DEST/.upgrade-pending: the next run treats the bridge as changed and
+# recreates it, even if the installed files already match the bundle. Any
+# failure before the recreate also puts the previous .env and compose file back.
+#
 # Idempotent. SKIP_PUBLIC_IP_CHECK=1 skips only the public IP check. A broken
 # bridge whose stats do not answer cannot be drained: stop it with
 # `docker compose -f /opt/talkchief-meet-bridge/docker-compose.yml down`
@@ -33,6 +38,7 @@ PROJECT=talkchief-meet-bridge
 FW=/usr/local/sbin/talkchief-meet-fw
 UNIT=talkchief-meet-bridge-fw.service
 COLIBRI=http://127.0.0.1:8080
+PENDING=$DEST/.upgrade-pending
 
 die() { echo "join: $*" >&2; exit 1; }
 ok() { echo "  ok: $*"; }
@@ -126,13 +132,21 @@ if monitor_on; then dc_src build monitor; fi
 # The jvb's settings come from .env and docker-compose.yml only (local
 # custom-jvb.conf tuning is kept and never compared).
 jvb_changed=1; monitor_changed=1
-if same "$SRC/.env" "$DEST/.env" && same "$SRC/docker-compose.yml" "$DEST/docker-compose.yml"; then
+if [ -f "$PENDING" ]; then
+  echo "  a previous upgrade did not finish ($PENDING): the bridge will be recreated"
+elif same "$SRC/.env" "$DEST/.env" && same "$SRC/docker-compose.yml" "$DEST/docker-compose.yml"; then
   jvb_changed=0
   if same "$SRC/monitor/Dockerfile" "$DEST/monitor/Dockerfile" && same "$SRC/monitor/monitor.py" "$DEST/monitor/monitor.py"; then
     monitor_changed=0
   fi
 fi
 live=$(live_jvb) || die "cannot ask Docker for this node's jvb containers"
+
+# From here on an upgrade is in progress until the new bridge is verified.
+if [ "$jvb_changed" = 1 ]; then
+  install -d -m 0750 "$DEST"
+  date -u +%FT%TZ >"$PENDING"
+fi
 
 # ── Drain the running bridge before it is replaced ───────────────────────
 if [ -n "$live" ] && [ "$jvb_changed" = 1 ]; then
@@ -153,7 +167,12 @@ if [ -n "$live" ] && [ "$jvb_changed" = 1 ]; then
   wait_min=${DRAIN_WAIT_MIN:-60}
   case "$wait_min" in ''|*[!0-9]*) die "DRAIN_WAIT_MIN must be a whole number of minutes" ;; esac
   deadline=$(( $(date +%s) + wait_min * 60 ))
-  while [ -n "$(live_jvb)" ]; do
+  while :; do
+    if ! live=$(live_jvb); then
+      docker update --restart="${policy:-unless-stopped}" "$cid" >/dev/null || true
+      die "cannot ask Docker whether the bridge is still running; not replacing it. Re-run join.sh"
+    fi
+    [ -n "$live" ] || break
     if [ "$(date +%s)" -ge "$deadline" ]; then
       # It keeps draining and exits when empty; let Docker bring it back then
       # with its current settings, so the node does not stay down.
@@ -167,16 +186,28 @@ if [ -n "$live" ] && [ "$jvb_changed" = 1 ]; then
 fi
 
 # Checked before anything in $DEST changes, and again right before the start.
-if [ "$jvb_changed" = 1 ] && [ -n "$(live_jvb)" ]; then
-  die "a jvb is running (Docker restarted it, or someone started it): not replacing it. Re-run join.sh"
+if [ "$jvb_changed" = 1 ]; then
+  live=$(live_jvb) || die "cannot ask Docker for this node's jvb containers; not replacing anything. Re-run join.sh"
+  [ -z "$live" ] || die "a jvb is running (Docker restarted it, or someone started it): not replacing it. Re-run join.sh"
 fi
 
 echo "Installing into $DEST"
 install -d -m 0750 "$DEST" "$DEST/config" "$DEST/config/jvb" "$DEST/config/jvb/custom-ca" "$DEST/monitor"
+# Until the recreate has run, any failure puts the previous settings back
+# (the pending marker stays, so the next run still recreates the bridge).
+restore_previous() {
+  local f
+  for f in .env docker-compose.yml; do
+    if [ -f "$DEST/$f.prev" ]; then mv -f "$DEST/$f.prev" "$DEST/$f"
+    elif [ -f "$DEST/$f" ]; then mv -f "$DEST/$f" "$DEST/$f.rejected"; fi
+  done
+  echo "join: previous settings restored in $DEST" >&2
+}
 if [ "$jvb_changed" = 1 ]; then
   for f in .env docker-compose.yml; do
     if [ -f "$DEST/$f" ]; then cp -p "$DEST/$f" "$DEST/$f.prev"; fi
   done
+  trap 'rc=$?; [ "$rc" = 0 ] || restore_previous' EXIT
 fi
 install -m 0600 "$SRC/.env" "$DEST/.env"
 install -m 0644 "$SRC/docker-compose.yml" "$DEST/docker-compose.yml"
@@ -201,15 +232,12 @@ install -m 0644 "$SRC/$UNIT" "/etc/systemd/system/$UNIT"
 
 echo "Starting the bridge"
 if [ "$jvb_changed" = 1 ]; then
-  # Re-checked right before the replacement: no jvb may be running now. If one
-  # is, put the previous settings back, so the next run still sees a change.
-  if [ -n "$(live_jvb)" ]; then
-    for f in .env docker-compose.yml; do
-      if [ -f "$DEST/$f.prev" ]; then mv -f "$DEST/$f.prev" "$DEST/$f"; else mv -f "$DEST/$f" "$DEST/$f.rejected"; fi
-    done
-    die "a jvb is running again (Docker restarted it, or someone started it): not replacing it; previous settings restored. Re-run join.sh"
-  fi
+  # Re-checked right before the replacement: no jvb may be running now.
+  live=$(live_jvb) || die "cannot ask Docker for this node's jvb containers; not replacing it. Re-run join.sh"
+  [ -z "$live" ] || die "a jvb is running again (Docker restarted it, or someone started it): not replacing it. Re-run join.sh"
   dc up -d --no-build --force-recreate --remove-orphans
+  # The new settings are in use now: never roll the files back after this.
+  trap - EXIT
   rm -f "$DEST/.env.prev" "$DEST/docker-compose.yml.prev" "$DEST/.env.rejected" "$DEST/docker-compose.yml.rejected"
 else
   # Same settings: start whatever is not running, never replace the jvb.
@@ -238,6 +266,7 @@ case "$code" in
   404|000|'') die "$COLIBRI/colibri/shutdown is not available (HTTP ${code:-none}): the bridge needs SHUTDOWN_REST_ENABLED=true and COLIBRI_REST_ENABLED=true (.env). It is running but cannot be drained; see the header of join.sh" ;;
 esac
 ok "graceful shutdown endpoint present (GET answers HTTP $code)"
+rm -f "$PENDING"
 
 cat <<EOF
 
