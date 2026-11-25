@@ -1,0 +1,37 @@
+# One Service per shard. HAProxy (k8s-pods/meet-haproxy) sends a room's XMPP (/xmpp-websocket,
+# /http-bind) to one shard by a consistent hash of tenant and room, and pages to either. Every video
+# bridge connects to both shards' Prosody on 5222 (XMPP_SERVER in k8s-pods/meet-jvb). ClusterIP only:
+# nothing here is reachable from outside the cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: meet-shard-0
+  labels:
+    app.kubernetes.io/name: meet-shard
+    app.kubernetes.io/part-of: meet
+    talkchief.io/shard: "0"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: meet-shard
+    talkchief.io/shard: "0"
+  ports:
+    - {name: http, port: 80, targetPort: http, protocol: TCP}
+    - {name: xmpp, port: 5222, targetPort: xmpp, protocol: TCP}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: meet-shard-1
+  labels:
+    app.kubernetes.io/name: meet-shard
+    app.kubernetes.io/part-of: meet
+    talkchief.io/shard: "1"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: meet-shard
+    talkchief.io/shard: "1"
+  ports:
+    - {name: http, port: 80, targetPort: http, protocol: TCP}
+    - {name: xmpp, port: 5222, targetPort: xmpp, protocol: TCP}

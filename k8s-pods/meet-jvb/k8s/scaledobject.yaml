@@ -1,0 +1,63 @@
+# Bridge autoscaling (design 5.8), KEDA's Prometheus scaler over the bridges' own metrics as they
+# reach the shared Prometheus of the voip cluster (label cluster="cowork" from this cluster's agent).
+# KEDA makes an HPA (keda-hpa-meet-jvb) with AverageValue targets, so for each trigger the wanted
+# bridge count is ceil(query / threshold):
+# - stress: the sum of every bridge's stress over 2 min against 0.5 keeps the average stress at or
+#   below 0.5, so a bridge is added when the average stays above 0.5 (scale-up window 2 min);
+#   while the average stress was at or above 0.2 at any time in the last 30 min the query reports
+#   at least "current bridges x 0.5", which holds the count, so the pool shrinks only after 30 min
+#   below 0.2, then one bridge per 15 min (HPA behavior);
+# - participants: one more bridge when there are more than 18 participants per bridge (CPX22).
+# Min 2 (one in each of two sites), max 4 until the scaling test (design 6.3) proves linear
+# scaling; then the owner raises it. The metric names (jitsi_jvb_stress_level,
+# jitsi_jvb_participants) must be checked against /metrics of stable-11248-2 in staging.
+# serverAddress is set by the overlay (k8s-pods/overlays/cowork).
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: meet-jvb
+  labels:
+    app.kubernetes.io/name: meet-jvb
+    app.kubernetes.io/part-of: meet
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: meet-jvb
+  minReplicaCount: 2
+  maxReplicaCount: 4
+  pollingInterval: 15
+  cooldownPeriod: 1800
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 120
+          policies:
+            - {type: Pods, value: 1, periodSeconds: 60}
+        scaleDown:
+          stabilizationWindowSeconds: 1800
+          selectPolicy: Min
+          policies:
+            - {type: Pods, value: 1, periodSeconds: 900}
+  triggers:
+    - type: prometheus
+      name: stress
+      metadata:
+        serverAddress: REPLACE_IN_OVERLAY
+        threshold: "0.5"
+        query: >-
+          max(
+            label_replace(sum(avg_over_time(jitsi_jvb_stress_level{cluster="cowork",namespace="meet"}[2m])), "src", "stress", "", "")
+            or
+            label_replace(
+              count(jitsi_jvb_stress_level{cluster="cowork",namespace="meet"}) * 0.5
+              * on() (max_over_time(avg(jitsi_jvb_stress_level{cluster="cowork",namespace="meet"})[30m:1m]) >= bool 0.2),
+              "src", "hold", "", "")
+          )
+    - type: prometheus
+      name: participants
+      metadata:
+        serverAddress: REPLACE_IN_OVERLAY
+        threshold: "18"
+        query: sum(jitsi_jvb_participants{cluster="cowork",namespace="meet"})

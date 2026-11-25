@@ -1,0 +1,63 @@
+# meet.talkchief.io (DNS only, as today) -> Hetzner Cloud Load Balancer meet-lb -> HAProxy.
+# The hcloud cloud-controller-manager creates and keeps meet-lb from these annotations
+# (names checked against hcloud-cloud-controller-manager docs/reference/load_balancer_annotations.md
+# at commit e872d8f5f810a01c8c284a80d96b050b3293cf37, and health-check-port against
+# internal/lbspec/opts.go, which uses it as the port on the targets, i.e. a node port):
+# - lb11, targets are the workers (node-selector) over the private network (use-private-ip);
+# - TCP passthrough on 443 and 80: TLS ends in HAProxy, which holds the certificate (Secret
+#   meet-tls), so the XMPP websocket (/xmpp-websocket) is a plain TCP stream at the load balancer
+#   and only HAProxy's timeouts apply (timeout tunnel 1h);
+# - health check: HTTP GET /talkchief-haproxy-health on node port 30080 (HAProxy's port 80
+#   frontend), every 5 s, unhealthy after 2 failed retries. It fails while HAProxy reaches no
+#   shard or is in its first 30 s, and on a worker without an HAProxy pod (externalTrafficPolicy
+#   Local), so meet-lb sends clients only to workers where HAProxy can serve them;
+# - no stickiness: both HAProxy pods compute the same consistent hash over the same shard list and
+#   share the peered stick table, so a room goes to the same shard whichever HAProxy pod or load
+#   balancer target receives the connection (README).
+apiVersion: v1
+kind: Service
+metadata:
+  name: meet-haproxy
+  labels:
+    app.kubernetes.io/name: meet-haproxy
+    app.kubernetes.io/part-of: meet
+  annotations:
+    load-balancer.hetzner.cloud/name: meet-lb
+    load-balancer.hetzner.cloud/type: lb11
+    load-balancer.hetzner.cloud/network-zone: eu-central
+    load-balancer.hetzner.cloud/use-private-ip: "true"
+    load-balancer.hetzner.cloud/node-selector: talkchief.io/pool=cowork-wk
+    load-balancer.hetzner.cloud/protocol: tcp
+    load-balancer.hetzner.cloud/algorithm-type: round_robin
+    load-balancer.hetzner.cloud/health-check-protocol: http
+    load-balancer.hetzner.cloud/health-check-port: "30080"
+    load-balancer.hetzner.cloud/health-check-http-path: /talkchief-haproxy-health
+    load-balancer.hetzner.cloud/health-check-http-domain: meet.talkchief.io
+    load-balancer.hetzner.cloud/health-check-interval: 5s
+    load-balancer.hetzner.cloud/health-check-timeout: 3s
+    load-balancer.hetzner.cloud/health-check-retries: "2"
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: meet-haproxy
+  ports:
+    - {name: https, port: 443, targetPort: https, nodePort: 30443, protocol: TCP}
+    - {name: http, port: 80, targetPort: http, nodePort: 30080, protocol: TCP}
+---
+# Peers: each HAProxy pod reaches the other by name (meet-haproxy-<n>.meet-haproxy-peers) on 8445.
+# Addresses are published before a pod is ready, so the two pods find each other while starting.
+apiVersion: v1
+kind: Service
+metadata:
+  name: meet-haproxy-peers
+  labels:
+    app.kubernetes.io/name: meet-haproxy
+    app.kubernetes.io/part-of: meet
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: meet-haproxy
+  ports:
+    - {name: peers, port: 8445, targetPort: peers, protocol: TCP}

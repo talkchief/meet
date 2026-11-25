@@ -1,0 +1,14 @@
+# Kustomize base of the JWT public-key server (k8s-pods/meet-asap/README.md). Upstream nginx (unprivileged
+# build) at an exact tag pinned by digest; the key comes from the Secret meet-jwt-public (never in
+# Git, see secret.example.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: meet
+resources:
+  - deployment.yaml
+  - service.yaml
+  - networkpolicy.yaml
+configMapGenerator:
+  - name: meet-asap-nginx
+    files:
+      - default.conf=asap.conf

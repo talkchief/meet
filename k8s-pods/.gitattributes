@@ -1,0 +1,2 @@
+# Kubernetes manifests and scripts are LF on every checkout (the test compares copies byte for byte).
+** text eol=lf

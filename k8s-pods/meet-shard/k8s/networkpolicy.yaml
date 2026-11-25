@@ -1,0 +1,76 @@
+# Shard pods (k8s-pods/meet-namespace denies everything else and allows DNS):
+# - in: HAProxy to web 8000; the cluster's Prometheus agent (namespace monitoring) to Jicofo 8888 and
+#   Prosody 5280 for /metrics; video bridges to Prosody 5222 (second document);
+# - out: the key server and the events relay in this namespace, Cowork's app (namespace cowork,
+#   8065) for /j/ guest links and "Invite people", and HTTPS outside the private ranges for the
+#   Sentry tunnel of the meeting page (/talkchief-sentry).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: meet-shard
+  labels:
+    app.kubernetes.io/name: meet-shard
+    app.kubernetes.io/part-of: meet
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: meet-shard
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: meet-haproxy
+      ports:
+        - {protocol: TCP, port: 8000}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - {protocol: TCP, port: 8888}
+        - {protocol: TCP, port: 5280}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: meet-asap
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: meet-events
+      ports:
+        - {protocol: TCP, port: 8080}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cowork
+      ports:
+        - {protocol: TCP, port: 8065}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16]
+      ports:
+        - {protocol: TCP, port: 443}
+---
+# Video bridges run with host networking on the cowork-jvb nodes, so their connections come from a
+# node address, which a standard NetworkPolicy podSelector cannot name. Cilium's node entities
+# allow exactly that, and only to Prosody's 5222. (NetworkPolicy does not cover the bridges
+# themselves: host-network pods are outside it; the Hetzner Cloud Firewall in Terraform guards their
+# UDP 10000 and keeps every other port closed from the internet.)
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: meet-shard-from-bridges
+  labels:
+    app.kubernetes.io/name: meet-shard
+    app.kubernetes.io/part-of: meet
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: meet-shard
+  ingress:
+    - fromEntities: [remote-node, host]
+      toPorts:
+        - ports:
+            - {port: "5222", protocol: TCP}

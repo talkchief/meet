@@ -1,0 +1,15 @@
+# ghcr.io/talkchief/meet-web:<12-hex commit> (k8s-pods/meet-web/README.md). Same recipe as
+# deploy/web/Dockerfile (the host install's image), with the upstream base pinned by digest. Build
+# from the repository root so the branding stays in one place (deploy/web):
+#   podman build -f k8s-pods/meet-web/image/Containerfile -t ghcr.io/talkchief/meet-web:$(git rev-parse --short=12 HEAD) .
+# The TalkChief web settings (custom-config.js, custom-interface_config.js, custom-meet.conf) are
+# not in the image: the shard pods take them from the meet-shard-web ConfigMap (k8s-pods/meet-shard/k8s),
+# as install.sh puts them into the web container's /config on a host.
+FROM ghcr.io/jitsi/web:stable-11248-2@sha256:212b46259b7e27625b30d93fa3571deb6b4cae92068d2d1fd820e2fe0bc0b556
+USER root
+COPY deploy/web/branding/ /tmp/branding/
+COPY deploy/web/brand.sh /tmp/brand.sh
+RUN bash /tmp/brand.sh /usr/share/jitsi-meet /tmp/branding && rm -rf /tmp/branding /tmp/brand.sh
+LABEL org.opencontainers.image.title="TalkChief Cowork Meetings web" \
+      org.opencontainers.image.source="https://github.com/talkchief/meet"
+USER s6

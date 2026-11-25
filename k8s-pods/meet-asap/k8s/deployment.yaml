@@ -1,0 +1,73 @@
+# Prosody verifies every member's token against this key server, so it runs twice.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: meet-asap
+  labels:
+    app.kubernetes.io/name: meet-asap
+    app.kubernetes.io/part-of: meet
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: meet-asap
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: meet-asap
+        app.kubernetes.io/part-of: meet
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        talkchief.io/pool: cowork-wk
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: meet-asap
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nginx
+          image: docker.io/nginxinc/nginx-unprivileged:1.30.6-alpine3.24@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03
+          ports:
+            - {name: http, containerPort: 8080, protocol: TCP}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 100m, memory: 64Mi}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 20
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: conf, mountPath: /etc/nginx/conf.d, readOnly: true}
+            - {name: keys, mountPath: /usr/share/nginx/html/asap, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: conf
+          configMap:
+            name: meet-asap-nginx
+        - name: keys
+          secret:
+            secretName: meet-jwt-public
+            defaultMode: 0444
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi

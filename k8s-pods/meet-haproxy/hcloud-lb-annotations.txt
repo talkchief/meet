@@ -1,0 +1,42 @@
+Annotation names of the hcloud cloud-controller-manager's Service type LoadBalancer, copied from
+https://github.com/hetznercloud/hcloud-cloud-controller-manager/blob/e872d8f5f810a01c8c284a80d96b050b3293cf37/docs/reference/load_balancer_annotations.md
+(read 2026-11-25). scripts/test-k8s-pods.py requires every annotation on meet-haproxy to be one of these.
+Re-read the reference when the CCM version in the cluster changes.
+
+`load-balancer.hetzner.cloud/algorithm-type`
+`load-balancer.hetzner.cloud/certificate-type`
+`load-balancer.hetzner.cloud/disable-private-ingress`
+`load-balancer.hetzner.cloud/disable-public-network`
+`load-balancer.hetzner.cloud/health-check-http-domain`
+`load-balancer.hetzner.cloud/health-check-http-path`
+`load-balancer.hetzner.cloud/health-check-http-validate-certificate`
+`load-balancer.hetzner.cloud/health-check-interval`
+`load-balancer.hetzner.cloud/health-check-port`
+`load-balancer.hetzner.cloud/health-check-protocol`
+`load-balancer.hetzner.cloud/health-check-retries`
+`load-balancer.hetzner.cloud/health-check-timeout`
+`load-balancer.hetzner.cloud/hostname`
+`load-balancer.hetzner.cloud/http-certificates`
+`load-balancer.hetzner.cloud/http-cookie-lifetime`
+`load-balancer.hetzner.cloud/http-cookie-name`
+`load-balancer.hetzner.cloud/http-managed-certificate-domains`
+`load-balancer.hetzner.cloud/http-managed-certificate-name`
+`load-balancer.hetzner.cloud/http-redirect-http`
+`load-balancer.hetzner.cloud/http-status-codes`
+`load-balancer.hetzner.cloud/http-sticky-sessions`
+`load-balancer.hetzner.cloud/http-timeout-idle`
+`load-balancer.hetzner.cloud/ipv4-rdns`
+`load-balancer.hetzner.cloud/ipv6-disabled`
+`load-balancer.hetzner.cloud/ipv6-rdns`
+`load-balancer.hetzner.cloud/location`
+`load-balancer.hetzner.cloud/name`
+`load-balancer.hetzner.cloud/network-zone`
+`load-balancer.hetzner.cloud/node-selector`
+`load-balancer.hetzner.cloud/private-ipv4`
+`load-balancer.hetzner.cloud/private-subnet-ip-range`
+`load-balancer.hetzner.cloud/protocol`
+`load-balancer.hetzner.cloud/public-net-ipv4`
+`load-balancer.hetzner.cloud/public-net-ipv6`
+`load-balancer.hetzner.cloud/type`
+`load-balancer.hetzner.cloud/use-private-ip`
+`load-balancer.hetzner.cloud/uses-proxyprotocol`

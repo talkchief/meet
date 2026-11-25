@@ -1,0 +1,17 @@
+# Kustomize base of the video bridges (k8s-pods/meet-jvb/README.md): the upstream jvb image at
+# stable-11248-2 pinned by digest (cluster tooling exception), one per cowork-jvb node with host
+# networking, a Python sidecar (upstream python image pinned by digest, script from a generated
+# ConfigMap), least-privilege access to its own pod, and the KEDA ScaledObject.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: meet
+resources:
+  - rbac.yaml
+  - admission-policy.yaml
+  - deployment.yaml
+  - scaledobject.yaml
+configMapGenerator:
+  - name: meet-jvb
+    files:
+      - jvb_sidecar.py
+      - custom-jvb.conf

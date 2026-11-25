@@ -1,0 +1,109 @@
+# TalkChief Meet entry (k8s-pods/meet-haproxy/README.md), the Kubernetes port of feat/ha-shards'
+# deploy/shard/haproxy.cfg.template. start.sh renders @PEER0@/@PEER1@ into /tmp/haproxy.cfg.
+#
+# Both HAProxy pods run this same config. The Hetzner Load Balancer meet-lb spreads clients over
+# them with no stickiness; whichever pod receives a client sends its XMPP traffic for a room to the
+# same shard, because the shard is chosen by a consistent hash of "<tenant>/<room>" over the same
+# server list (same names, same ids). A meeting therefore lives on exactly one shard. Everything
+# else (the page, static files, guest links) is the same on every shard and goes to any healthy one.
+#
+# Recovery: a room that moved to the other shard while its shard was down stays there. The stick
+# table (room -> shard), shared by both pods through `peers` (port 8445, headless Service
+# meet-haproxy-peers), wins over the hash; the hash only places rooms that have no entry yet.
+#
+# Health: two checks per shard, /talkchief-shard-health (web to Jicofo's REST API) and /http-bind
+# (web to Prosody), every 2 s; a shard is out after two failures.
+global
+    log stdout format raw local0 info
+    maxconn 20000
+    # Start time of this HAProxy (TC_STARTED, set once by start.sh; a reload keeps it).
+    set-var proc.started env(TC_STARTED),add(0)
+
+resolvers kubedns
+    parse-resolv-conf
+    hold valid 10s
+
+peers shards
+    peer meet-haproxy-0 @PEER0@:8445
+    peer meet-haproxy-1 @PEER1@:8445
+
+defaults
+    mode http
+    log global
+    # No query string in the log: meeting URLs carry the participant's JWT.
+    log-format "%ci:%cp [%tr] %ft %b/%s %TR/%Tw/%Tc/%Tr/%Ta %ST %B %tsc %{+Q}HM %{+Q}HPO shard_key=%[var(txn.shardkey)]"
+    option dontlognull
+    timeout connect 5s
+    # BOSH long polls answer within 60 s.
+    timeout client 90s
+    timeout server 90s
+    # XMPP websockets (/xmpp-websocket) stay open for the whole meeting; Prosody pings them about
+    # every minute, so 1 h of silence means the client is gone.
+    timeout tunnel 1h
+    timeout client-fin 30s
+    timeout http-request 15s
+    timeout http-keep-alive 15s
+
+frontend meet
+    bind :8080
+    bind :8443 ssl crt /etc/haproxy-certs/meet.pem alpn http/1.1
+    # The load balancer's health check (http on port 80, design and README): HAProxy itself is up
+    # (it then routes around any dead shard on its own)...
+    monitor-uri /talkchief-haproxy-health
+    # ...unless it can reach no shard at all: then the load balancer must stop sending clients here.
+    acl no_shard nbsrv(shards_xmpp) lt 1
+    monitor fail if no_shard
+    # ...and not during the first 30 s after a start: a restarted HAProxy has an empty stick table
+    # until its peer resyncs it. Without the grace it could send a late joiner to the hash shard
+    # while the room's earlier participants are on the other one.
+    acl starting date,sub(proc.started) lt 30
+    monitor fail if starting
+    http-request redirect scheme https code 301 unless { ssl_fc }
+    # Shard health is for HAProxy's own checks only.
+    http-request deny deny_status 404 if { path_end /talkchief-shard-health }
+    # Only HAProxy's own checks carry this header (k8s-pods/meet-shard/k8s/config/custom-meet.conf).
+    http-request del-header X-Talkchief-Shard-Check
+    option forwardfor
+    # XMPP for a room: /xmpp-websocket?room=<room>, /http-bind?room=<room>, with an optional tenant
+    # prefix (/<tenant>/xmpp-websocket?room=<room>).
+    acl xmpp path_end /xmpp-websocket /http-bind
+    http-request set-var(txn.room) url_param(room),lower if xmpp
+    http-request set-var(txn.shardkey) path,regsub(/xmpp-websocket$,/),regsub(/http-bind$,/),lower,concat(,txn.room) if xmpp
+    use_backend shards_xmpp if xmpp
+    default_backend shards_web
+
+# Metrics for the cluster's Prometheus agent; not part of the load balancer Service.
+frontend stats
+    bind :8404
+    http-request use-service prometheus-exporter if { path /metrics }
+    http-request return status 404
+
+backend shards_xmpp
+    balance hash var(txn.shardkey)
+    hash-type consistent
+    stick-table type string len 256 size 200k expire 12h peers shards
+    stick on var(txn.shardkey)
+    option httpchk
+    http-check connect
+    http-check send meth GET uri /talkchief-shard-health ver HTTP/1.1 hdr Host meet.talkchief.io hdr X-Talkchief-Shard-Check 1
+    http-check expect status 200
+    http-check connect
+    http-check send meth GET uri /http-bind ver HTTP/1.1 hdr Host meet.talkchief.io
+    http-check expect status 200
+    # Fixed ids: the hash ring depends on them, never on the order of the lines.
+    default-server check inter 2s fall 2 rise 3 resolvers kubedns init-addr last,libc,none on-marked-down shutdown-sessions
+    server meet-shard-0 meet-shard-0.meet.svc.cluster.local:80 id 1
+    server meet-shard-1 meet-shard-1.meet.svc.cluster.local:80 id 2
+
+backend shards_web
+    balance roundrobin
+    option httpchk
+    http-check connect
+    http-check send meth GET uri /talkchief-shard-health ver HTTP/1.1 hdr Host meet.talkchief.io hdr X-Talkchief-Shard-Check 1
+    http-check expect status 200
+    http-check connect
+    http-check send meth GET uri /http-bind ver HTTP/1.1 hdr Host meet.talkchief.io
+    http-check expect status 200
+    default-server check inter 2s fall 2 rise 3 resolvers kubedns init-addr last,libc,none
+    server meet-shard-0 meet-shard-0.meet.svc.cluster.local:80 id 1
+    server meet-shard-1 meet-shard-1.meet.svc.cluster.local:80 id 2

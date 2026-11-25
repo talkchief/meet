@@ -1,0 +1,222 @@
+# Video bridges (design 5.8): only on the cowork-jvb nodes (Cluster Autoscaler node groups, CPX22,
+# tainted), one per node, host networking on UDP 10000, each advertising its own node's public IPv4
+# from the Hetzner metadata service, STUN off. Every bridge registers with both shards' Prosody, so
+# one pool serves every shard. KEDA (scaledobject.yaml) sets the replica count between 2 and 4.
+#
+# Scale-in without cutting a meeting: the sidecar keeps pod-deletion-cost at the participant count
+# (the emptiest bridge goes first); on deletion its preStop drains the bridge (no new conferences),
+# waits until no participant is left, then asks for a graceful shutdown; the jvb container's preStop
+# waits for that. The grace period is 3 h; a meeting still running then is moved by Jicofo.
+# NetworkPolicy does not apply to host-network pods: the Hetzner Cloud Firewall (Terraform) opens
+# only UDP 10000 on these nodes. The bridge needs no TURN server itself: clients behind strict
+# firewalls relay through coturn on the workers, and the bridge answers the relay's address.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: meet-jvb
+  labels:
+    app.kubernetes.io/name: meet-jvb
+    app.kubernetes.io/part-of: meet
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # A new bridge needs a new node; the old one drains for up to 3 h.
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: meet-jvb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: meet-jvb
+        app.kubernetes.io/part-of: meet
+      annotations:
+        # Never removed by the Cluster Autoscaler while it runs (scale-in goes through KEDA and
+        # the drain above; the node is removed once empty).
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9888"
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: meet-jvb
+      # The API token is mounted into the sidecar only (volume sa-token), not into the bridge.
+      automountServiceAccountToken: false
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 10800
+      nodeSelector:
+        talkchief.io/pool: cowork-jvb
+      tolerations:
+        - key: talkchief.io/pool
+          operator: Equal
+          value: cowork-jvb
+          effect: NoSchedule
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: meet-jvb
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: meet-jvb
+      # The Jitsi images run as uid/gid 1000 (deploy/scripts/install.sh); so does the sidecar.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: advertise
+          image: docker.io/library/python:3.13.17-alpine3.24@sha256:fa0bb0d0cd7c7d6cef30a69094d32ac2b71c7304c87c6107fec100e1ee4eda02
+          command: ["python3", "/talkchief/jvb_sidecar.py", "advertise"]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 100m, memory: 64Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: talkchief, mountPath: /talkchief, readOnly: true}
+            - {name: shared, mountPath: /shared}
+            - {name: jvb-config, mountPath: /config}
+      containers:
+        - name: jvb
+          image: ghcr.io/jitsi/jvb:stable-11248-2@sha256:fbee39d421aad572f7050bce15a89c07f524ae01e590c62939b2d6235fdb15ef
+          envFrom:
+            - configMapRef:
+                name: meet-relay
+          # The image's entrypoint is s6-overlay's /init; the advertised address is known only now.
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              JVB_ADVERTISE_IPS="$(cat /shared/advertise-ip)"
+              export JVB_ADVERTISE_IPS
+              exec /init
+          env:
+            - name: POD_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            - name: JVB_INSTANCE_ID
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            - name: JVB_MUC_NICKNAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            # Both shards' Prosody, through their Services (cluster DNS: dnsPolicy above).
+            - name: XMPP_SERVER
+              value: meet-shard-0.meet.svc.cluster.local,meet-shard-1.meet.svc.cluster.local
+            - name: XMPP_PORT
+              value: "5222"
+            - name: JVB_AUTH_PASSWORD
+              valueFrom: {secretKeyRef: {name: meet-jvb-auth, key: password}}
+            - {name: JVB_PORT, value: "10000"}
+            # The advertised address comes from the metadata service; no third-party STUN.
+            - {name: JVB_DISABLE_STUN, value: "1"}
+            # REST on 127.0.0.1 only (custom-jvb.conf): stats, drain and graceful shutdown.
+            - {name: COLIBRI_REST_ENABLED, value: "true"}
+            - {name: SHUTDOWN_REST_ENABLED, value: "true"}
+            # Bridge relay (Octo): ENABLE_OCTO and the region come from meet-relay (off by
+            # default); the relay id is this pod's name.
+            - name: JVB_OCTO_RELAY_ID
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            # Java heap inside the 3 GiB memory limit of a CPX22 bridge.
+            - {name: VIDEOBRIDGE_MAX_MEMORY, value: 1536m}
+            - {name: TZ, value: UTC}
+          ports:
+            - {name: media, containerPort: 10000, hostPort: 10000, protocol: UDP}
+          resources:
+            # Sized for a CPX22 bridge node (2 shared vCPU / 4 GB, owner 2026-11-25); the rest of the
+            # node is for Talos, Cilium, node-exporter and Alloy. One bridge per node. No CPU limit
+            # on purpose: CFS throttling of a media forwarder shows as jitter, and the node has
+            # nothing else to protect.
+            requests: {cpu: 1500m, memory: 2560Mi}
+            limits: {memory: 3Gi}
+          # Probes go to 127.0.0.1 (host network: the kubelet shares the node's loopback). Liveness
+          # is TCP only, so a bridge that is draining is never restarted.
+          readinessProbe:
+            httpGet: {host: 127.0.0.1, path: /about/health, port: 8080}
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket: {host: 127.0.0.1, port: 8080}
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 6
+          lifecycle:
+            preStop:
+              exec:
+                # Waits for the sidecar's drain (graceful shutdown) to finish.
+                command: ["/bin/sh", "-c", "while [ ! -f /shared/drained ]; do sleep 5; done"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: shared, mountPath: /shared}
+            - {name: jvb-config, mountPath: /config}
+            - {name: jvb-run, mountPath: /run}
+            - {name: jvb-tmp, mountPath: /tmp}
+        - name: sidecar
+          image: docker.io/library/python:3.13.17-alpine3.24@sha256:fa0bb0d0cd7c7d6cef30a69094d32ac2b71c7304c87c6107fec100e1ee4eda02
+          command: ["python3", "/talkchief/jvb_sidecar.py", "run"]
+          env:
+            - name: POD_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            - name: POD_NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+            - {name: METRICS_PORT, value: "9888"}
+            # 3 h grace minus a minute for the shutdown itself.
+            - {name: DRAIN_DEADLINE_SECONDS, value: "10740"}
+          ports:
+            - {name: metrics, containerPort: 9888, protocol: TCP}
+          resources:
+            requests: {cpu: 20m, memory: 48Mi}
+            limits: {cpu: 200m, memory: 96Mi}
+          readinessProbe:
+            httpGet: {host: 127.0.0.1, path: /healthz, port: 9888}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {host: 127.0.0.1, path: /healthz, port: 9888}
+            periodSeconds: 30
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                command: ["python3", "/talkchief/jvb_sidecar.py", "drain"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: talkchief, mountPath: /talkchief, readOnly: true}
+            - {name: shared, mountPath: /shared}
+            - {name: sa-token, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true}
+      volumes:
+        - name: sa-token
+          projected:
+            sources:
+              - serviceAccountToken: {path: token, expirationSeconds: 3600}
+              - configMap:
+                  name: kube-root-ca.crt
+                  items: [{key: ca.crt, path: ca.crt}]
+        - name: talkchief
+          configMap:
+            name: meet-jvb
+        - {name: shared, emptyDir: {medium: Memory, sizeLimit: 1Mi}}
+        - {name: jvb-config, emptyDir: {sizeLimit: 32Mi}}
+        - {name: jvb-run, emptyDir: {medium: Memory, sizeLimit: 32Mi}}
+        - {name: jvb-tmp, emptyDir: {medium: Memory, sizeLimit: 16Mi}}

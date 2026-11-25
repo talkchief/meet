@@ -1,0 +1,38 @@
+# The sidecar's only API access: get and patch pods in namespace meet. RBAC cannot name "its own pod"
+# (pod names are random), so admission-policy.yaml narrows it to the caller's own pod and to the
+# pod-deletion-cost annotation.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: meet-jvb
+  labels:
+    app.kubernetes.io/name: meet-jvb
+    app.kubernetes.io/part-of: meet
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: meet-jvb-deletion-cost
+  labels:
+    app.kubernetes.io/name: meet-jvb
+    app.kubernetes.io/part-of: meet
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: meet-jvb-deletion-cost
+  labels:
+    app.kubernetes.io/name: meet-jvb
+    app.kubernetes.io/part-of: meet
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: meet-jvb-deletion-cost
+subjects:
+  - kind: ServiceAccount
+    name: meet-jvb
+    namespace: meet

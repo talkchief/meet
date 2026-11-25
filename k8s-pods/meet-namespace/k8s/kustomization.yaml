@@ -1,0 +1,21 @@
+# The meet namespace, its default-deny NetworkPolicy with the DNS allowance every pod needs, the
+# bridge relay settings shared by Jicofo and the bridges (meet-relay, off), and the
+# Meet alert rules for the shared Prometheus of the voip cluster (ConfigMap labelled
+# talkchief.io/prometheus-rules, same file shape as kz5 pods/monitoring/k8s/rules/*.yml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: meet
+resources:
+  - namespace.yaml
+  - networkpolicy.yaml
+configMapGenerator:
+  # Bridge relay (Octo) settings for Jicofo and the bridges, off by default (relay.env).
+  - name: meet-relay
+    envs:
+      - relay.env
+  - name: meet-prometheus-rules
+    files:
+      - meet.yml=rules/meet.yml
+    options:
+      labels:
+        talkchief.io/prometheus-rules: "true"

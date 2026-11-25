@@ -1,0 +1,52 @@
+# Overlay of the cowork cluster (design: kz5 doc/collaboration_cluster_architecture.md): every Meet
+# base plus the Cluster Autoscaler, in apply order. Argo CD of the voip cluster applies it; nothing
+# here is applied by hand.
+#
+# PLACEHOLDERS to fill before the first sync (scripts/test-k8s-pods.py lists them as known gaps):
+# - KEDA's Prometheus: the shared Prometheus of the voip cluster, reachable from this cluster (URL
+#   and, if it needs one, a KEDA TriggerAuthentication); not known until that endpoint is exposed.
+# - HCLOUD_NETWORK / HCLOUD_FIREWALL: the names Terraform gives the cowork private network and the
+#   bridge nodes' Cloud Firewall.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../meet-namespace/k8s
+  - ../../meet-asap/k8s
+  - ../../meet-events/k8s
+  - ../../meet-shard/k8s
+  - ../../meet-haproxy/k8s
+  - ../../meet-jvb/k8s
+  - ../../cluster-autoscaler/k8s
+# Bridge relay (Octo) toggle for this cluster: "false" (off, a meeting lives on one bridge). The test
+# cluster's overlay sets "true" for the large-meeting test (k8s-pods/meet-namespace/k8s/relay.env).
+configMapGenerator:
+  - name: meet-relay
+    namespace: meet
+    behavior: merge
+    literals:
+      - ENABLE_OCTO=false
+patches:
+  - target:
+      group: keda.sh
+      version: v1alpha1
+      kind: ScaledObject
+      name: meet-jvb
+    patch: |-
+      - op: replace
+        path: /spec/triggers/0/metadata/serverAddress
+        value: https://REPLACE_VOIP_PROMETHEUS_URL
+      - op: replace
+        path: /spec/triggers/1/metadata/serverAddress
+        value: https://REPLACE_VOIP_PROMETHEUS_URL
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: cluster-autoscaler
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/env/2/value
+        value: REPLACE_TERRAFORM_NETWORK_NAME
+      - op: replace
+        path: /spec/template/spec/containers/0/env/3/value
+        value: REPLACE_TERRAFORM_BRIDGE_FIREWALL_NAME

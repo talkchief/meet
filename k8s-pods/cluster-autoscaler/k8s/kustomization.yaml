@@ -1,0 +1,11 @@
+# Kustomize base of the Kubernetes Cluster Autoscaler for the bridge nodes
+# (k8s-pods/cluster-autoscaler/README.md): upstream image at an exact tag pinned by digest (cluster
+# tooling exception), Hetzner provider, three node groups cowork-jvb-{hel,nbg,fsn}. Its Hetzner token
+# and the bridge nodes' Talos machine configuration come from the Secret cluster-autoscaler-hcloud
+# (never in Git, see secret.example.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: kube-system
+resources:
+  - rbac.yaml
+  - deployment.yaml

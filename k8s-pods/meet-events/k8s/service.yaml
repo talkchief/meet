@@ -1,0 +1,15 @@
+# Prosody posts room events to http://meet-events.meet.svc.cluster.local:8080/talkchief/meetings/events
+# (TALKCHIEF_EVENTS_URL in k8s-pods/meet-shard/k8s/config/shard.env); the web container passes call
+# diagnostics to /talkchief/diag.
+apiVersion: v1
+kind: Service
+metadata:
+  name: meet-events
+  labels:
+    app.kubernetes.io/name: meet-events
+    app.kubernetes.io/part-of: meet
+spec:
+  selector:
+    app.kubernetes.io/name: meet-events
+  ports:
+    - {name: http, port: 8080, targetPort: http, protocol: TCP}
