@@ -365,7 +365,7 @@ check("authentication.kubernetes.io/pod-name" in str(vap['spec']['validations'])
 so = find('ScaledObject', 'meet-jvb')
 triggers = dict((t['name'], t) for t in so['spec']['triggers'])
 check(so['spec']['minReplicaCount'] == 2 and so['spec']['maxReplicaCount'] == 4, 'KEDA: min 2, max 4 bridges')
-check(triggers['stress']['metadata']['threshold'] == '0.5' and 'avg_over_time(jitsi_jvb_stress_level' in triggers['stress']['metadata']['query']
+check(triggers['stress']['metadata']['threshold'] == '0.5' and 'avg_over_time(jitsi_jvb_stress{' in triggers['stress']['metadata']['query']
       and '[2m]' in triggers['stress']['metadata']['query'], 'KEDA: stress threshold 0.5 over 2 min')
 check('>= bool 0.2' in triggers['stress']['metadata']['query'] and '[30m:1m]' in triggers['stress']['metadata']['query'], 'KEDA: shrink only after 30 min below 0.2')
 check(triggers['participants']['metadata']['threshold'] == '18', 'KEDA: one more bridge above 18 participants per bridge')
@@ -373,7 +373,6 @@ behavior = so['spec']['advanced']['horizontalPodAutoscalerConfig']['behavior']
 check(behavior['scaleUp']['stabilizationWindowSeconds'] == 120 and behavior['scaleDown']['stabilizationWindowSeconds'] == 1800
       and behavior['scaleDown']['policies'] == [{'type': 'Pods', 'value': 1, 'periodSeconds': 900}], 'HPA: up after 2 min, down one at a time after 30 min')
 gap('KEDA serverAddress is a placeholder until the voip Prometheus endpoint for this cluster exists (k8s-pods/overlays/cowork)')
-gap('JVB metric names jitsi_jvb_stress_level / jitsi_jvb_participants to be checked against /metrics of stable-11248-2 in staging')
 
 # ------------------------------------------------------------------ Cluster Autoscaler
 ca = find('Deployment', 'cluster-autoscaler')

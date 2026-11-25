@@ -16,7 +16,7 @@ groups:
           summary: "Meet shard {{ $labels.server }} has been out of the HAProxy rotation for 2 minutes"
           description: "Its rooms run on the other shard. Check the shard pod (web, Prosody, Jicofo) in namespace meet."
       - alert: JvbStressHigh
-        expr: avg(jitsi_jvb_stress_level{cluster="cowork",namespace="meet"}) > 0.8
+        expr: avg(jitsi_jvb_stress{cluster="cowork",namespace="meet"}) > 0.8
         for: 5m
         labels:
           severity: warning

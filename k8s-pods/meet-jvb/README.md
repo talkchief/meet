@@ -41,6 +41,6 @@ Design 5.8, with the owner's change to CPX22 bridge nodes (2026-11-25).
 - **NetworkPolicy does not cover host-network pods.** The Hetzner Cloud Firewall (Terraform) must
   open only UDP 10000 on the bridge nodes from the internet; 9888 is for the private network only.
 
-**Unverified until a test cluster:** the metric names `jitsi_jvb_stress_level` and
-`jitsi_jvb_participants`, that `/init` is the image's entrypoint, the HOCON keys in
+Metric names checked on the test cluster (2026-11-25): `jitsi_jvb_stress` and
+`jitsi_jvb_current_endpoints` (participants). **Unverified until a test cluster:** that `/init` is the image's entrypoint, the HOCON keys in
 `custom-jvb.conf`, and a full drain on a real scale-in.

@@ -9,8 +9,9 @@
 #   below 0.2, then one bridge per 15 min (HPA behavior);
 # - participants: one more bridge when there are more than 18 participants per bridge (CPX22).
 # Min 2 (one in each of two sites), max 4 until the scaling test (design 6.3) proves linear
-# scaling; then the owner raises it. The metric names (jitsi_jvb_stress_level,
-# jitsi_jvb_participants) must be checked against /metrics of stable-11248-2 in staging.
+# scaling; then the owner raises it. Metric names as stable-11248-2 serves them (read on the test
+# cluster 2026-11-25): jitsi_jvb_stress and jitsi_jvb_current_endpoints (participants on the bridge);
+# jitsi_jvb_stress and jitsi_jvb_current_endpoints do not exist.
 # serverAddress is set by the overlay (k8s-pods/overlays/cowork).
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
@@ -48,11 +49,11 @@ spec:
         threshold: "0.5"
         query: >-
           max(
-            label_replace(sum(avg_over_time(jitsi_jvb_stress_level{cluster="cowork",namespace="meet"}[2m])), "src", "stress", "", "")
+            label_replace(sum(avg_over_time(jitsi_jvb_stress{cluster="cowork",namespace="meet"}[2m])), "src", "stress", "", "")
             or
             label_replace(
-              count(jitsi_jvb_stress_level{cluster="cowork",namespace="meet"}) * 0.5
-              * on() (max_over_time(avg(jitsi_jvb_stress_level{cluster="cowork",namespace="meet"})[30m:1m]) >= bool 0.2),
+              count(jitsi_jvb_stress{cluster="cowork",namespace="meet"}) * 0.5
+              * on() (max_over_time(avg(jitsi_jvb_stress{cluster="cowork",namespace="meet"})[30m:1m]) >= bool 0.2),
               "src", "hold", "", "")
           )
     - type: prometheus
@@ -60,4 +61,4 @@ spec:
       metadata:
         serverAddress: REPLACE_IN_OVERLAY
         threshold: "18"
-        query: sum(jitsi_jvb_participants{cluster="cowork",namespace="meet"})
+        query: sum(jitsi_jvb_current_endpoints{cluster="cowork",namespace="meet"})
