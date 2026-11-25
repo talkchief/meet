@@ -111,11 +111,34 @@ def walk_kustomization(directory, namespace=None):
         GENERATED[gen['name']] = files
     for image in kust.get('images', []):
         IMAGES[image['name']] = (image.get('newName', image['name']), image.get('digest') or image.get('newTag'))
+    # Components (k8s-pods/overlays/hetzner): their resources join the overlay's, and their
+    # strategic-merge patch files (maps only, e.g. the load balancer's annotations) apply to the
+    # objects gathered so far. scripts/test-provider-overlays.py renders them exactly.
+    for comp in kust.get('components', []):
+        walk_kustomization(os.path.normpath(os.path.join(directory, comp)), None)
+    for entry in kust.get('patches', []):
+        if 'path' not in entry:
+            continue
+        for patch in load(rel(os.path.join(directory, entry['path']))):
+            hits = [o for _, o in OBJECTS if o['kind'] == patch['kind'] and o['metadata']['name'] == patch['metadata']['name']
+                    and o['metadata'].get('namespace') == patch['metadata'].get('namespace')]
+            check(len(hits) == 1, '%s: patch %s %s targets one object' % (rel(kpath), patch['kind'], patch['metadata']['name']))
+            for hit in hits:
+                merge_map(hit, patch)
+
+
+def merge_map(dst, patch):
+    for key, value in patch.items():
+        if isinstance(value, dict) and isinstance(dst.get(key), dict):
+            merge_map(dst[key], value)
+        else:
+            dst[key] = value
 
 
 walk_kustomization(os.path.join(PODS, 'overlays', 'cowork'))
 for name in ('meet-namespace', 'meet-asap', 'meet-events', 'meet-shard', 'meet-haproxy', 'meet-jvb', 'cluster-autoscaler'):
     check('k8s-pods/%s/k8s' % name in visited, 'the cowork overlay composes k8s-pods/%s' % name)
+check('k8s-pods/overlays/hetzner' in visited, 'the cowork overlay includes the Hetzner component k8s-pods/overlays/hetzner')
 check(all(not any(o['kind'] == 'Secret' for _, o in OBJECTS) for _ in [0]), 'no Secret object is applied from Git')
 
 
@@ -319,8 +342,8 @@ check(ann[P + 'health-check-protocol'] == 'http' and ann[P + 'health-check-http-
 check(int(ann[P + 'health-check-port']) == ports['http']['nodePort'], 'health check port is the node port of HAProxy\'s port 80 frontend')
 check(not any('sticky' in k or 'cookie' in k for k in ann), 'no load balancer stickiness')
 check(lb['spec']['externalTrafficPolicy'] == 'Local', 'externalTrafficPolicy Local: only workers with an HAProxy pod pass the check')
-known = set(re.findall(r'`(load-balancer\.hetzner\.cloud/[a-z0-9-]+)`', read('k8s-pods/meet-haproxy/hcloud-lb-annotations.txt')))
-check(set(ann) <= known, 'every annotation name is in the hcloud CCM reference (k8s-pods/meet-haproxy/hcloud-lb-annotations.txt)')
+known = set(re.findall(r'`(load-balancer\.hetzner\.cloud/[a-z0-9-]+)`', read('k8s-pods/overlays/hetzner/hcloud-lb-annotations.txt')))
+check(set(ann) <= known, 'every annotation name is in the hcloud CCM reference (k8s-pods/overlays/hetzner/hcloud-lb-annotations.txt)')
 cfg = read('k8s-pods/meet-haproxy/k8s/haproxy.cfg.template')
 check(re.search(r'^\s*timeout tunnel 1h$', cfg, re.M) is not None, 'HAProxy timeout tunnel 1h for XMPP websockets')
 check(re.search(r'^\s*timeout client 90s$', cfg, re.M) and re.search(r'^\s*timeout server 90s$', cfg, re.M), 'HAProxy client/server timeouts above the 60 s BOSH poll')

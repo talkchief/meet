@@ -21,8 +21,12 @@ layout is kz5's: `<name>/{image/,k8s/,README.md}`.
 | [`meet-asap`](meet-asap/README.md) | RS256 public-key server for Prosody | upstream nginx-unprivileged by digest |
 | [`meet-events`](meet-events/README.md) | room events to Cowork, call diagnostics | upstream nginx-unprivileged by digest |
 | [`meet-jvb`](meet-jvb/README.md) | video bridges: host network UDP 10000, one per bridge node, graceful drain on scale-in, KEDA autoscaling | upstream jvb by digest; upstream python sidecar by digest |
-| [`cluster-autoscaler`](cluster-autoscaler/README.md) | Cluster Autoscaler, Hetzner provider, node groups `cowork-jvb-{hel,nbg,fsn}` (CPX22) | upstream by digest |
-| [`overlays/cowork`](overlays/cowork/kustomization.yaml) | composes every base for the cowork cluster; holds the placeholders and the relay toggle | |
+| [`cluster-autoscaler`](cluster-autoscaler/README.md) | Cluster Autoscaler, Hetzner provider, node groups `cowork-jvb-{hel,nbg,fsn}` (CPX22); provider-bound, composed only by `overlays/hetzner` | upstream by digest |
+| [`overlays/hetzner`](overlays/hetzner/kustomization.yaml) | kustomize Component with every Hetzner-only piece: the `meet-lb` annotations of `meet-haproxy` and the Cluster Autoscaler | |
+| [`overlays/cowork`](overlays/cowork/kustomization.yaml) | composes every base plus `overlays/hetzner` for the cowork cluster; holds the placeholders and the relay toggle | |
+
+The bases are provider-neutral; [`GCP-PORTING.md`](GCP-PORTING.md) maps each Hetzner piece to its GKE
+equivalent (a port adds one Component next to `overlays/hetzner`).
 
 Upstream images that carry no TalkChief code run at an exact tag pinned by digest, with TalkChief code
 (Prosody modules) and settings mounted from Kustomize-generated ConfigMaps (kz5 "cluster tooling"
@@ -45,7 +49,12 @@ a first manual bring-up on a test cluster:
 
 ```sh
 python3 scripts/test-k8s-pods.py
+python3 scripts/test-provider-overlays.py [--baseline REF]
 ```
+
+`test-provider-overlays.py` fails when a base renders a Hetzner value and, with `--baseline`, when
+`overlays/cowork` renders other objects than at REF (and other bytes, when kustomize or kubectl is on
+PATH): run it with `--baseline` after any change meant to leave the cluster's manifests unchanged.
 
 Offline (PyYAML only; no kubectl, kustomize or container runtime): follows every kustomization from
 the overlay, checks pins, resources, probes, placement, the load balancer, routing, bridges,

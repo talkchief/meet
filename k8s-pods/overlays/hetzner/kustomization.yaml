@@ -1,0 +1,18 @@
+# Hetzner Cloud component (kustomize Component): everything in the Meet pods that only Hetzner
+# Cloud understands, so the bases under k8s-pods/<pod>/k8s stay provider-neutral and another
+# provider means one more component next to this one (k8s-pods/GCP-PORTING.md). The cluster overlay
+# (k8s-pods/overlays/cowork) includes it; scripts/test-provider-overlays.py proves the overlay renders
+# what it rendered before the split and that no base holds a Hetzner value.
+# - meet-lb: the hcloud cloud-controller-manager annotations of the meet-haproxy Service;
+# - the Cluster Autoscaler with its Hetzner provider (k8s-pods/cluster-autoscaler, a provider-bound
+#   base: hcloud node groups created from the Talos image).
+# Not here, because they are not kustomize objects or not provider API: the JVB sidecar's public
+# address and zone lookup (Hetzner metadata service, the default of k8s-pods/meet-jvb/k8s/
+# jvb_sidecar.py), the Hetzner Cloud Firewall for the bridges' UDP 10000 (Terraform), and the hcloud
+# CCM, CSI driver and Talos machine configuration of the cluster itself.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - ../../cluster-autoscaler/k8s
+patches:
+  - path: meet-haproxy-lb.yaml
