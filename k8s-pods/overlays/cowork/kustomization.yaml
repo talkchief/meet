@@ -1,6 +1,7 @@
 # Overlay of the cowork cluster (design: kz5 doc/collaboration_cluster_architecture.md): every Meet
-# base plus the Cluster Autoscaler, in apply order. Argo CD of the voip cluster applies it; nothing
-# here is applied by hand.
+# base in apply order, plus the Hetzner component (k8s-pods/overlays/hetzner: the meet-lb load
+# balancer and the Cluster Autoscaler). Argo CD of the voip cluster applies it; nothing here is
+# applied by hand. Another provider swaps that one component (k8s-pods/GCP-PORTING.md).
 #
 # PLACEHOLDERS to fill before the first sync (scripts/test-k8s-pods.py lists them as known gaps):
 # - KEDA's Prometheus: the shared Prometheus of the voip cluster, reachable from this cluster (URL
@@ -16,7 +17,8 @@ resources:
   - ../../meet-shard/k8s
   - ../../meet-haproxy/k8s
   - ../../meet-jvb/k8s
-  - ../../cluster-autoscaler/k8s
+components:
+  - ../hetzner
 # Bridge relay (Octo) toggle for this cluster: "false" (off, a meeting lives on one bridge). The test
 # cluster's overlay sets "true" for the large-meeting test (k8s-pods/meet-namespace/k8s/relay.env).
 configMapGenerator:

@@ -19,8 +19,9 @@ meet.talkchief.io (DNS only) -> Hetzner LB meet-lb (lb11, TCP 443/80, private ta
 - **TLS: in HAProxy**, from the `kubernetes.io/tls` Secret `meet-tls` (SOPS or cert-manager), so the
   load balancer passes TCP through and needs no certificate. Port 80 redirects to HTTPS.
 - **Load balancer `meet-lb`**, created by the hcloud cloud-controller-manager from the Service
-  annotations (`k8s/services.yaml`). Names checked against the CCM reference at commit
-  `e872d8f5` (`hcloud-lb-annotations.txt`); `health-check-port` is a port on the targets (CCM
+  annotations, which the Hetzner component adds to the provider-neutral Service of `k8s/services.yaml`
+  (`../overlays/hetzner/meet-haproxy-lb.yaml`; GKE: `../GCP-PORTING.md`). Names checked against the
+  CCM reference at commit `e872d8f5` (`../overlays/hetzner/hcloud-lb-annotations.txt`); `health-check-port` is a port on the targets (CCM
   `internal/lbspec/opts.go`), hence the fixed node port 30080:
 
   | Annotation | Value |
