@@ -52,5 +52,18 @@ Design 5.8, with the owner's change to CPX22 bridge nodes (2026-11-25).
   open only UDP 10000 on the bridge nodes from the internet; 9888 is for the private network only.
 
 Metric names checked on the test cluster (2026-11-25): `jitsi_jvb_stress` and
-`jitsi_jvb_current_endpoints` (participants). **Unverified until a test cluster:** that `/init` is the image's entrypoint, the HOCON keys in
-`custom-jvb.conf`, and a full drain on a real scale-in.
+`jitsi_jvb_current_endpoints` (participants). **Unverified until a test cluster:** that `/init` is the image's entrypoint and the HOCON
+keys in `custom-jvb.conf`.
+
+**Measured on the test cluster (2026-11-25, every participant's camera on, 4-person meetings, 360p delivered):**
+- Adding bridges scales linearly: 1 -> 2 -> 3 bridges carried 6 -> 12 -> 18 meetings (24 -> 48 -> 72 attendees) at a
+  flat mean stress (0.45, 0.42, 0.49) with unchanged quality and join time (2.4-3.4 s to media); Jicofo, Prosody,
+  HAProxy and the workers did not grow measurably. KEDA added each bridge when the maximum allowed it; with no free
+  bridge node the Cluster Autoscaler's node made it 2 min 45 s from decision to a serving bridge.
+- One CPX22 bridge held 36 all-video attendees at stress 0.49 with full quality; stress 0.8 extrapolates to about 45.
+  CPX22 stress varies about 0.1 between hosts at equal load, so judge the pool's mean stress.
+- A real scale-in drained the emptiest bridge (deletion cost 16 against 32): its 4 meetings kept every member and
+  their video, new meetings went to the other bridge, and the pod exited 81 s after its last meeting ended; the
+  Cluster Autoscaler removed the empty node 10 minutes later.
+- `max-bridge-participants` (15 per shard) is soft: with every bridge over it Jicofo still placed conferences by
+  stress (20 from one shard on one bridge), so stress and autoscaling are the real protection.
