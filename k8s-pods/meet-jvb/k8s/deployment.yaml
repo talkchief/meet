@@ -4,7 +4,11 @@
 # one pool serves every shard. KEDA (scaledobject.yaml) sets the replica count between 2 and 4.
 #
 # Scale-in without cutting a meeting: the sidecar keeps pod-deletion-cost at the participant count
-# (the emptiest bridge goes first); on deletion its preStop drains the bridge (no new conferences),
+# (the emptiest bridge goes first), plus a large bonus while the bridge is the only one in its site
+# (talkchief.io/bridge-site, from the metadata availability zone), so a scale-in never empties a site
+# while another site still has two: the zone spread below acts only at scheduling, and without the
+# bonus both survivors of a 4 -> 2 scale-in were in hel1 (L18, test cluster 2026-11-25). On deletion
+# its preStop drains the bridge (no new conferences),
 # waits until no participant is left, then asks for a graceful shutdown; the jvb container's preStop
 # waits for that. The grace period is 3 h; a meeting still running then is moved by Jicofo.
 # NetworkPolicy does not apply to host-network pods: the Hetzner Cloud Firewall (Terraform) opens

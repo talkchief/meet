@@ -3,11 +3,14 @@
 
 Modes:
   advertise  init container: read the node's public IPv4 from the Hetzner metadata service, write it
-             for the jvb container (JVB_ADVERTISE_IPS), and copy custom-jvb.conf into jvb's /config.
-  run        sidecar: keep the pod annotation controller.kubernetes.io/pod-deletion-cost equal to
-             the bridge's participant count, so a scale-in removes the emptiest bridge; and serve
-             only /metrics of the bridge on METRICS_PORT (the bridge's own REST API stays on
-             127.0.0.1).
+             for the jvb container (JVB_ADVERTISE_IPS), write the node's site (hel1, nbg1, fsn1 from
+             the metadata availability zone), and copy custom-jvb.conf into jvb's /config.
+  run        sidecar: mark the pod with its site (annotation talkchief.io/bridge-site) and keep the
+             pod annotation controller.kubernetes.io/pod-deletion-cost at the bridge's participant
+             count, plus SITE_BONUS while it is the only bridge in its site, so a scale-in removes
+             the emptiest bridge of a site that keeps another one and never empties a site while
+             another site has two (L18); and serve only /metrics of the bridge on METRICS_PORT (the
+             bridge's own REST API stays on 127.0.0.1).
   drain      preStop of this container: tell the bridge to drain (Jicofo puts no new conference
              on it), wait until it carries no participants, then ask for a graceful shutdown and
              wait until the bridge has exited or has no conference, then write the file the jvb
@@ -20,6 +23,7 @@ import http.server
 import ipaddress
 import json
 import os
+import re
 import signal
 import shutil
 import ssl
@@ -31,8 +35,14 @@ import urllib.request
 
 COLIBRI = os.environ.get('JVB_COLIBRI_URL', 'http://127.0.0.1:8080')
 METADATA_URL = os.environ.get('METADATA_URL', 'http://169.254.169.254/hetzner/v1/metadata/public-ipv4')
+ZONE_URL = os.environ.get('ZONE_URL', 'http://169.254.169.254/hetzner/v1/metadata/availability-zone')
 SHARED = os.environ.get('SHARED_DIR', '/shared')
 DELETION_COST = 'controller.kubernetes.io/pod-deletion-cost'
+SITE = 'talkchief.io/bridge-site'
+# Larger than any participant count (the annotation is an int32), so the last bridge of a site goes
+# after every bridge of a site that keeps one.
+SITE_BONUS = 1000000
+SITE_PATTERN = re.compile(r'^([a-z]+[0-9]+)(-dc[0-9]+)?$')
 SA_DIR = os.environ.get('SA_DIR', '/var/run/secrets/kubernetes.io/serviceaccount')
 
 
@@ -71,18 +81,64 @@ def deletion_cost_patch(count):
     return {'metadata': {'annotations': {DELETION_COST: str(int(count))}}}
 
 
-def patch_own_pod(body):
+def site_of(zone):
+    """The site (Hetzner location) of a metadata availability zone: 'hel1-dc2' -> 'hel1'; '' when the
+    answer does not look like one."""
+    match = SITE_PATTERN.match((zone or '').strip())
+    return match.group(1) if match else ''
+
+
+def site_patch(site):
+    return {'metadata': {'annotations': {SITE: site}}}
+
+
+def last_in_site(site, own_name, pods):
+    """True when no other live bridge pod (not being deleted) carries this pod's site. A pod without a
+    site (metadata unreadable, or not yet marked) never counts as the last of a site."""
+    if not site:
+        return False
+    for pod in pods:
+        meta = pod.get('metadata') or {}
+        if meta.get('name') == own_name or meta.get('deletionTimestamp'):
+            continue
+        if (meta.get('annotations') or {}).get(SITE) == site:
+            return False
+    return True
+
+
+def deletion_cost(count, last):
+    """pod-deletion-cost (the ReplicaSet removes the lowest first): the participant count keeps the
+    emptiest bridge first; the bonus keeps a site's last bridge until no site has two."""
+    return int(count) + (SITE_BONUS if last else 0)
+
+
+def api_request(path, method='GET', body=None):
     host = os.environ['KUBERNETES_SERVICE_HOST']
     port = os.environ.get('KUBERNETES_SERVICE_PORT', '443')
-    url = 'https://%s:%s/api/v1/namespaces/%s/pods/%s' % (host, port, os.environ['POD_NAMESPACE'], os.environ['POD_NAME'])
     with open(os.path.join(SA_DIR, 'token'), encoding='ascii') as handle:
         token = handle.read().strip()
     context = ssl.create_default_context(cafile=os.path.join(SA_DIR, 'ca.crt'))
-    req = urllib.request.Request(url, data=json.dumps(body).encode(), method='PATCH')
-    req.add_header('Content-Type', 'application/merge-patch+json')
+    data = None if body is None else json.dumps(body).encode()
+    req = urllib.request.Request('https://%s:%s%s' % (host, port, path), data=data, method=method)
+    if data is not None:
+        req.add_header('Content-Type', 'application/merge-patch+json')
     req.add_header('Authorization', 'Bearer ' + token)
     with urllib.request.urlopen(req, timeout=10, context=context) as resp:
-        return resp.status
+        raw = resp.read()
+        return resp.status, (json.loads(raw) if raw.strip() else {})
+
+
+def patch_own_pod(body):
+    status, _ = api_request('/api/v1/namespaces/%s/pods/%s' % (os.environ['POD_NAMESPACE'], os.environ['POD_NAME']),
+                            method='PATCH', body=body)
+    return status
+
+
+def bridge_pods():
+    """The bridge pods of this namespace (label app.kubernetes.io/name=meet-jvb)."""
+    _, body = api_request('/api/v1/namespaces/%s/pods?labelSelector=app.kubernetes.io%%2Fname%%3Dmeet-jvb'
+                          % os.environ['POD_NAMESPACE'])
+    return body.get('items') or []
 
 
 def advertise():
@@ -90,9 +146,18 @@ def advertise():
         ip = public_ipv4(resp.read().decode('ascii'))
     with open(os.path.join(SHARED, 'advertise-ip'), 'w', encoding='ascii') as handle:
         handle.write(ip)
+    # The site only orders scale-in: a bridge whose site cannot be read still starts (it just never
+    # counts as the last bridge of a site).
+    try:
+        with urllib.request.urlopen(ZONE_URL, timeout=5) as resp:
+            site = site_of(resp.read().decode('ascii', 'replace'))
+    except (urllib.error.URLError, OSError):
+        site = ''
+    with open(os.path.join(SHARED, 'site'), 'w', encoding='ascii') as handle:
+        handle.write(site)
     src = os.environ.get('CUSTOM_JVB_CONF', '/talkchief/custom-jvb.conf')
     shutil.copyfile(src, os.path.join(os.environ.get('JVB_CONFIG_DIR', '/config'), 'custom-jvb.conf'))
-    log('advertise', ip=ip)
+    log('advertise', ip=ip, site=site or 'unknown')
 
 
 class MetricsProxy(http.server.BaseHTTPRequestHandler):
@@ -134,15 +199,33 @@ def run():
     server = http.server.ThreadingHTTPServer(('0.0.0.0', port), MetricsProxy)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     interval = int(os.environ.get('INTERVAL_SECONDS', '15'))
+    try:
+        with open(os.path.join(SHARED, 'site'), encoding='ascii') as handle:
+            site = site_of(handle.read())
+    except OSError:
+        site = ''
+    marked = not site
+    alone = False
     last = None
     while True:
         try:
+            if not marked:
+                patch_own_pod(site_patch(site))
+                log('site', value=site)
+                marked = True
             _, stats = http_json(COLIBRI + '/colibri/stats')
             count = participants(stats)
-            if count != last:
-                patch_own_pod(deletion_cost_patch(count))
-                log('deletion_cost', value=count)
-                last = count
+            try:
+                alone = last_in_site(site, os.environ['POD_NAME'], bridge_pods())
+            except (urllib.error.URLError, OSError, ValueError) as err:
+                # Keep the previous answer: dropping the bonus on an API hiccup could let a scale-in
+                # take a site's last bridge.
+                log('list_failed', reason=type(err).__name__)
+            cost = deletion_cost(count, alone)
+            if cost != last:
+                patch_own_pod(deletion_cost_patch(cost))
+                log('deletion_cost', value=cost, participants=count, last_in_site=alone)
+                last = cost
         except (urllib.error.URLError, OSError, ValueError) as err:
             log('stats_failed', reason=type(err).__name__)
         time.sleep(interval)

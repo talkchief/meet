@@ -18,16 +18,26 @@ Design 5.8, with the owner's change to CPX22 bridge nodes (2026-11-25).
   The rest of the node is for Talos, Cilium, node-exporter and Alloy. Load measurement stays at the
   release default (`cpu-usage`, CPU steal detection on).
 - **Scale-in without cutting a meeting:** the sidecar keeps `controller.kubernetes.io/pod-deletion-cost`
-  at the bridge's participant count, so the Deployment removes the emptiest bridge. On deletion the
+  at the bridge's participant count, so the Deployment removes the emptiest bridge.
+- **Scale-in keeps the sites (L18):** the init container reads the node's site (`hel1`, `nbg1`,
+  `fsn1`) from `http://169.254.169.254/hetzner/v1/metadata/availability-zone`; the sidecar marks its
+  pod with the annotation `talkchief.io/bridge-site`, lists the other bridge pods and adds 1,000,000 to
+  the deletion cost while no other live bridge has its site. The ReplicaSet therefore removes a bridge
+  of a site that keeps another one first, and takes a site's last bridge only when every site has one
+  bridge left: a 4 -> 2 scale-in ends in two sites. (The zone spread acts only at scheduling; before
+  this both survivors of M3's scale-in were in hel1, test cluster 2026-11-25.) A bridge whose site
+  cannot be read still runs and simply never counts as a site's last.
+- **Drain:** on deletion the
   sidecar's preStop enables drain (`POST /colibri/drain/enable`: Jicofo stops placing conferences
   there), waits until no participant is left, then calls `POST /colibri/shutdown
   {"graceful-shutdown":"true"}` and waits for the bridge to finish; the jvb container's preStop waits
   for that. `terminationGracePeriodSeconds: 10800` (3 h); a meeting still running then is moved by
   Jicofo. Liveness is TCP only, so a draining bridge is never restarted. Pods carry
   `cluster-autoscaler.kubernetes.io/safe-to-evict: "false"`.
-- **Least privilege for the sidecar:** ServiceAccount `meet-jvb` with get/patch on pods in `meet`
-  (RBAC cannot name a random pod), narrowed by the ValidatingAdmissionPolicy `meet-jvb-own-pod-only`
-  to its own pod (the pod name bound into its token) and to the deletion-cost annotation only. The
+- **Least privilege for the sidecar:** ServiceAccount `meet-jvb` with get/list/patch on pods in `meet`
+  (RBAC cannot name a random pod; list reads the other bridges' sites), narrowed by the
+  ValidatingAdmissionPolicy `meet-jvb-own-pod-only` to changing its own pod (the pod name bound into
+  its token) and only the deletion-cost and `talkchief.io/bridge-site` annotations. The
   token is mounted into the sidecar only, never into the bridge.
 - **Autoscaling (`scaledobject.yaml`, KEDA):** min 2, max 4; add a bridge when the average stress
   stays above 0.5 for 2 minutes or when there are more than 18 participants per bridge; shrink only

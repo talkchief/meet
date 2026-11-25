@@ -369,10 +369,12 @@ check(spec['automountServiceAccountToken'] is False
       and any(m['name'] == 'sa-token' for m in by['sidecar']['volumeMounts']), 'the API token is mounted into the sidecar only')
 check(jvb['spec']['template']['metadata']['annotations']['prometheus.io/port'] == '9888', 'JVB /metrics scraped through the sidecar on 9888')
 role = find('Role', 'meet-jvb-deletion-cost')
-check(role['rules'] == [{'apiGroups': [''], 'resources': ['pods'], 'verbs': ['get', 'patch']}], 'sidecar Role: get and patch pods only')
+check(role['rules'] == [{'apiGroups': [''], 'resources': ['pods'], 'verbs': ['get', 'list', 'patch']}],
+      'sidecar Role: get, list (the other bridges\' sites) and patch pods only')
 vap = find('ValidatingAdmissionPolicy', 'meet-jvb-own-pod-only')
-check("authentication.kubernetes.io/pod-name" in str(vap['spec']['validations']) and 'pod-deletion-cost' in str(vap['spec']['validations']),
-      'admission policy: own pod only, deletion-cost annotation only')
+rules = str(vap['spec']['validations'])
+check("authentication.kubernetes.io/pod-name" in rules and "k != 'controller.kubernetes.io/pod-deletion-cost' && k != 'talkchief.io/bridge-site'" in rules
+      and 'object.spec == oldObject.spec' in rules, 'admission policy: own pod only, deletion-cost and bridge-site annotations only')
 
 so = find('ScaledObject', 'meet-jvb')
 triggers = dict((t['name'], t) for t in so['spec']['triggers'])
@@ -468,6 +470,81 @@ for wrong in ('10.0.0.5', '169.254.169.254', 'not-an-ip'):
         check(True, 'advertise: %s is refused' % wrong)
 check(sidecar.deletion_cost_patch(7) == {'metadata': {'annotations': {'controller.kubernetes.io/pod-deletion-cost': '7'}}},
       'deletion cost patch sets only the annotation, as a string')
+
+check(sidecar.site_of('hel1-dc2') == 'hel1' and sidecar.site_of('fsn1-dc14\n') == 'fsn1' and sidecar.site_of('nbg1') == 'nbg1',
+      'site: the metadata availability zone gives the site (hel1-dc2 -> hel1)')
+check(sidecar.site_of('') == '' and sidecar.site_of('<html>') == '' and sidecar.site_of('hel1-dc2; rm') == '', 'site: anything else gives no site')
+check(sidecar.site_patch('nbg1') == {'metadata': {'annotations': {'talkchief.io/bridge-site': 'nbg1'}}}, 'site patch sets only the site annotation')
+
+
+def bridge(name, site, deleting=False):
+    meta = {'name': name, 'annotations': {'talkchief.io/bridge-site': site} if site else {}}
+    if deleting:
+        meta['deletionTimestamp'] = '2026-11-25T03:09:22Z'
+    return {'metadata': meta}
+
+
+pods = [bridge('a', 'hel1'), bridge('b', 'hel1'), bridge('c', 'nbg1'), bridge('d', 'fsn1')]
+check(not sidecar.last_in_site('hel1', 'a', pods) and sidecar.last_in_site('nbg1', 'c', pods), 'last in site: a site with two bridges has no last one')
+check(sidecar.last_in_site('hel1', 'a', [bridge('a', 'hel1'), bridge('b', 'hel1', deleting=True)]), 'last in site: a bridge being deleted does not count')
+check(not sidecar.last_in_site('', 'a', [bridge('a', '')]), 'last in site: a bridge without a site never counts as a site\'s last')
+check(sidecar.last_in_site('fsn1', 'd', [bridge('d', 'fsn1'), bridge('e', '')]), 'last in site: a bridge not yet marked does not count')
+check(sidecar.deletion_cost(7, False) == 7 and sidecar.deletion_cost(0, True) == sidecar.SITE_BONUS >= 10 ** 6, 'deletion cost: participants, plus the bonus for a site\'s last bridge')
+
+
+def scale_in(layout, replicas):
+    """The ReplicaSet's choice on scale-in for running, ready pods: lowest pod-deletion-cost first
+    (each sidecar's cost from the pods that are still there)."""
+    layout = dict(layout)
+    while len(layout) > replicas:
+        live = [bridge(n, s) for n, (s, _) in layout.items()]
+        cost = dict((n, sidecar.deletion_cost(p, sidecar.last_in_site(s, n, live))) for n, (s, p) in layout.items())
+        del layout[min(sorted(cost), key=lambda n: cost[n])]
+    return sorted(s for s, _ in layout.values())
+
+
+# M3 (test cluster 2026-11-25): four bridges, two in hel1; the fsn1 and nbg1 bridges emptied first.
+m3 = {'hel-a': ('hel1', 4), 'hel-b': ('hel1', 8), 'nbg-a': ('nbg1', 0), 'fsn-a': ('fsn1', 0)}
+check(scale_in(m3, 2) in (['fsn1', 'hel1'], ['hel1', 'nbg1'], ['fsn1', 'nbg1']), 'scale-in 4 -> 2 of M3\'s layout leaves bridges in two sites (L18)')
+by_participants_only = sorted(m3, key=lambda n: m3[n][1])[2:]
+check(sorted(m3[n][0] for n in by_participants_only) == ['hel1', 'hel1'], 'without the site bonus the same scale-in leaves both bridges in hel1 (the L18 failure)')
+import itertools
+spread = all(len(set(scale_in(dict(zip('abcd', zip(sites, counts))), 2))) == 2
+             for sites in itertools.product(('hel1', 'nbg1', 'fsn1'), repeat=4) if len(set(sites)) >= 2
+             for counts in itertools.product((0, 3, 9), repeat=4))
+check(spread, 'scale-in to 2 from any 4-bridge layout over two or more sites keeps two sites, whatever the participants')
+check(scale_in({'a': ('hel1', 9), 'b': ('nbg1', 0), 'c': ('nbg1', 5)}, 2) == ['hel1', 'nbg1'], 'scale-in 3 -> 2 takes the emptier bridge of the site that keeps one')
+
+ADVERTISE = {'/public-ipv4': b'95.216.1.2', '/availability-zone': b'hel1-dc2'}
+
+
+class FakeMetadata(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def do_GET(self):
+        body = ADVERTISE.get(self.path)
+        self.send_response(200 if body is not None else 404)
+        self.send_header('Content-Length', str(len(body or b'')))
+        self.end_headers()
+        self.wfile.write(body or b'')
+
+
+meta_server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), FakeMetadata)
+threading.Thread(target=meta_server.serve_forever, daemon=True).start()
+with tempfile.TemporaryDirectory() as shared, tempfile.TemporaryDirectory() as config:
+    base = 'http://127.0.0.1:%d' % meta_server.server_address[1]
+    sidecar.METADATA_URL, sidecar.ZONE_URL, sidecar.SHARED = base + '/public-ipv4', base + '/availability-zone', shared
+    conf = os.path.join(config, 'src.conf')
+    open(conf, 'w').write('x')
+    os.environ['CUSTOM_JVB_CONF'], os.environ['JVB_CONFIG_DIR'] = conf, config
+    sidecar.advertise()
+    check(open(os.path.join(shared, 'advertise-ip')).read() == '95.216.1.2' and open(os.path.join(shared, 'site')).read() == 'hel1',
+          'advertise: writes the public IPv4 and the site from the metadata service')
+    sidecar.ZONE_URL = base + '/missing'
+    sidecar.advertise()
+    check(open(os.path.join(shared, 'site')).read() == '', 'advertise: an unreadable site does not stop the bridge (empty site)')
+meta_server.shutdown()
 
 CALLS = []
 STATE = {'participants': 3, 'conferences': 1}
