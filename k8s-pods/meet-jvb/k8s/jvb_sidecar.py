@@ -60,8 +60,11 @@ def public_ipv4(text):
 
 
 def participants(stats):
-    """Participant count from /colibri/stats (0 when the field is missing)."""
-    return int(stats.get('participants', 0) or 0)
+    """Participants on this bridge from /colibri/stats (0 when the field is missing), without the
+    relayed endpoints of other bridges: after a shard restart a relayed conference that Jicofo never
+    expired kept "participants" at 9 with nobody on the bridge, so the drain waited out the 3 h grace
+    period (test cluster 2026-11-25)."""
+    return max(0, int(stats.get('participants', 0) or 0) - int(stats.get('octo_endpoints', 0) or 0))
 
 
 def deletion_cost_patch(count):
