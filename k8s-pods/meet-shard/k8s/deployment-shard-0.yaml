@@ -1,0 +1,232 @@
+# Meet shard 0 (design 5.7): one pod with the branded web, Prosody (TalkChief modules and the JWT
+# settings) and Jicofo. Jicofo has no standby mode, so the shard, not the process, is the unit of
+# availability; shard 1 (deployment-shard-1.yaml, identical apart from its number) runs on another
+# worker by required anti-affinity. Recreate, never two pods of one shard at once: a shard that is
+# being replaced is out of HAProxy's rotation and its rooms come back on the other shard.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: meet-shard-0
+  labels:
+    app.kubernetes.io/name: meet-shard
+    app.kubernetes.io/part-of: meet
+    talkchief.io/shard: "0"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: meet-shard
+      talkchief.io/shard: "0"
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: meet-shard
+        app.kubernetes.io/part-of: meet
+        talkchief.io/shard: "0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8888"
+        prometheus.io/path: /metrics
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 60
+      imagePullSecrets:
+        - name: ghcr-pull
+      nodeSelector:
+        talkchief.io/pool: cowork-wk
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: meet-shard
+      # The Jitsi images run as uid/gid 1000 (deploy/scripts/install.sh).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+        # Bridge loss (L20): a bridge whose node is powered off never closes its XMPP connection, and
+        # Jicofo moves a conference off a bridge only when the bridge leaves Prosody's brewery room or
+        # fails a request (a health-check timeout moves nothing). With the kernel default (15
+        # retransmissions, about 15 min) Prosody kept the dead bridge's session and media stayed frozen
+        # until the clients' ICE failure made Jicofo time out a request to that bridge: 34-35 s on the
+        # test cluster (2026-11-25). Two retransmissions give up 1.4-3 s after the first unanswered
+        # stanza (Jicofo's health check sends one every second, custom-jicofo.conf; three gave up only
+        # after 6.2 s, because the kernel checks the limit when a retransmission timer fires), Prosody
+        # closes the session, ends it after 1 s of hibernation (talkchief-prosody.cfg.lua), the bridge
+        # leaves the room and Jicofo re-invites its participants at once. Per pod
+        # network namespace: it covers this pod's connections only. Unsafe sysctl: the workers'
+        # kubelet must allow it (allowedUnsafeSysctls, k8s-pods/README.md); namespace meet is already
+        # Pod Security "privileged" (the bridges need host networking).
+        sysctls:
+          - {name: net.ipv4.tcp_retries2, value: "2"}
+      initContainers:
+        # Puts the TalkChief web settings into the web container's /config, as install.sh does on a
+        # host: custom-config.js (plus the Kubernetes additions in custom-config.k8s.js) with the
+        # versioned branding URL, custom-interface_config.js and the Kubernetes variant of
+        # custom-meet.conf; custom-jicofo.conf into Jicofo's /config; and the Prosody override
+        # talkchief-prosody.cfg.lua into Prosody's /config/conf.d (bridge loss, L20).
+        - name: web-config
+          image: meet-web
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              v=$(sha256sum /usr/share/jitsi-meet/static/talkchief-branding.json | cut -c1-12)
+              cat /talkchief/custom-config.js /talkchief/custom-config.k8s.js | sed "s#static/talkchief-branding.json'#static/talkchief-branding.json?v=${v}'#" > /config/custom-config.js
+              cp /talkchief/custom-interface_config.js /config/custom-interface_config.js
+              mkdir -p /config/nginx
+              cp /talkchief/custom-meet.conf /config/nginx/custom-meet.conf
+              cp /talkchief/custom-jicofo.conf /jicofo-config/custom-jicofo.conf
+              mkdir -p /prosody-config/conf.d
+              cp /talkchief/talkchief-prosody.cfg.lua /prosody-config/conf.d/zz-talkchief.cfg.lua
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 100m, memory: 64Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: web-config, mountPath: /config}
+            - {name: jicofo-config, mountPath: /jicofo-config}
+            - {name: prosody-config, mountPath: /prosody-config}
+            - {name: talkchief-web, mountPath: /talkchief, readOnly: true}
+      containers:
+        - name: web
+          image: meet-web
+          envFrom:
+            - configMapRef:
+                name: meet-shard-env
+          ports:
+            - {name: http, containerPort: 8000, protocol: TCP}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          readinessProbe:
+            httpGet: {path: /config.js, port: http}
+            periodSeconds: 5
+            failureThreshold: 2
+          livenessProbe:
+            httpGet: {path: /config.js, port: http}
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: web-config, mountPath: /config}
+            - {name: web-storage, mountPath: /storage}
+            - {name: web-run, mountPath: /run}
+            - {name: web-tmp, mountPath: /tmp}
+        - name: prosody
+          image: ghcr.io/jitsi/prosody:stable-11248-2@sha256:47a2ac616f9f9daef0513be7561fce75beee7e1ec02c5980fe01cb13cdd4a0a8
+          envFrom:
+            - configMapRef:
+                name: meet-shard-env
+          env:
+            - name: JICOFO_AUTH_PASSWORD
+              valueFrom: {secretKeyRef: {name: meet-jicofo-auth, key: password}}
+            - name: JVB_AUTH_PASSWORD
+              valueFrom: {secretKeyRef: {name: meet-jvb-auth, key: password}}
+            - name: TURN_CREDENTIALS
+              valueFrom: {secretKeyRef: {name: turn-meet, key: static-auth-secret}}
+            - name: TALKCHIEF_EVENTS_SECRET
+              valueFrom: {secretKeyRef: {name: meet-events, key: secret}}
+          ports:
+            # Video bridges (host network on the jvb nodes) connect here through this shard's
+            # Service; never exposed outside the cluster.
+            - {name: xmpp, containerPort: 5222, protocol: TCP}
+            - {name: bosh, containerPort: 5280, protocol: TCP}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          readinessProbe:
+            httpGet: {path: /http-bind, port: bosh}
+            periodSeconds: 5
+            failureThreshold: 2
+          livenessProbe:
+            httpGet: {path: /http-bind, port: bosh}
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: prosody-config, mountPath: /config}
+            - {name: prosody-data, mountPath: /var/lib/prosody}
+            - {name: prosody-plugins, mountPath: /prosody-plugins-custom, readOnly: true}
+            - {name: prosody-run, mountPath: /run}
+            - {name: prosody-tmp, mountPath: /tmp}
+        - name: jicofo
+          image: ghcr.io/jitsi/jicofo:stable-11248-2@sha256:cedbfcc5efd987b10a027c941929581ee2a18a846ad11830d83efe8c646b47bd
+          envFrom:
+            - configMapRef:
+                name: meet-shard-env
+            # Bridge relay (Octo): off unless the overlay turns it on (k8s-pods/meet-namespace).
+            - configMapRef:
+                name: meet-relay
+          env:
+            - name: JICOFO_AUTH_PASSWORD
+              valueFrom: {secretKeyRef: {name: meet-jicofo-auth, key: password}}
+          ports:
+            - {name: rest, containerPort: 8888, protocol: TCP}
+          resources:
+            requests: {cpu: 200m, memory: 768Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          # Jicofo's REST API (/stats), the same check HAProxy uses through /talkchief-shard-health.
+          # /about/health is not used: it is off in this release unless JICOFO_ENABLE_HEALTH_CHECKS
+          # is set, and it fails while no bridge is registered, which must not restart Jicofo.
+          startupProbe:
+            httpGet: {path: /stats, port: rest}
+            periodSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            httpGet: {path: /stats, port: rest}
+            periodSeconds: 5
+            failureThreshold: 2
+          livenessProbe:
+            httpGet: {path: /stats, port: rest}
+            periodSeconds: 20
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: jicofo-config, mountPath: /config}
+            - {name: jicofo-run, mountPath: /run}
+            - {name: jicofo-tmp, mountPath: /tmp}
+      volumes:
+        - name: talkchief-web
+          configMap:
+            name: meet-shard-web
+        - name: prosody-plugins
+          configMap:
+            name: meet-prosody-plugins
+        - {name: web-config, emptyDir: {sizeLimit: 32Mi}}
+        - {name: web-storage, emptyDir: {sizeLimit: 64Mi}}
+        - {name: web-run, emptyDir: {medium: Memory, sizeLimit: 16Mi}}
+        - {name: web-tmp, emptyDir: {medium: Memory, sizeLimit: 16Mi}}
+        - {name: prosody-config, emptyDir: {sizeLimit: 32Mi}}
+        - {name: prosody-data, emptyDir: {sizeLimit: 256Mi}}
+        - {name: prosody-run, emptyDir: {medium: Memory, sizeLimit: 16Mi}}
+        - {name: prosody-tmp, emptyDir: {medium: Memory, sizeLimit: 16Mi}}
+        - {name: jicofo-config, emptyDir: {sizeLimit: 32Mi}}
+        - {name: jicofo-run, emptyDir: {medium: Memory, sizeLimit: 32Mi}}
+        - {name: jicofo-tmp, emptyDir: {medium: Memory, sizeLimit: 16Mi}}

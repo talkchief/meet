@@ -1,0 +1,13 @@
+# Keep one HAProxy serving during node drains and upgrades.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: meet-haproxy
+  labels:
+    app.kubernetes.io/name: meet-haproxy
+    app.kubernetes.io/part-of: meet
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: meet-haproxy

@@ -1,0 +1,28 @@
+# The relay takes requests only from the shard pods and reaches only Cowork's app (namespace cowork,
+# port 8065). DNS is allowed for every pod by k8s-pods/meet-namespace/k8s/networkpolicy.yaml.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: meet-events
+  labels:
+    app.kubernetes.io/name: meet-events
+    app.kubernetes.io/part-of: meet
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: meet-events
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: meet-shard
+      ports:
+        - {protocol: TCP, port: 8080}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cowork
+      ports:
+        - {protocol: TCP, port: 8065}

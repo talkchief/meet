@@ -1,0 +1,50 @@
+# HAProxy pods:
+# - in: clients through meet-lb on 8080/8443 (the load balancer reaches the workers' node ports
+#   from its private address and forwards the client's TCP stream, so the source can be any
+#   address); the other HAProxy pod on 8445 (peers); the Prometheus agent (namespace monitoring) on
+#   8404;
+# - out: the shards' web (8000) and the other HAProxy pod (8445). DNS is allowed by
+#   k8s-pods/meet-namespace/k8s/networkpolicy.yaml.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: meet-haproxy
+  labels:
+    app.kubernetes.io/name: meet-haproxy
+    app.kubernetes.io/part-of: meet
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: meet-haproxy
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - ipBlock: {cidr: 0.0.0.0/0}
+      ports:
+        - {protocol: TCP, port: 8080}
+        - {protocol: TCP, port: 8443}
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: meet-haproxy
+      ports:
+        - {protocol: TCP, port: 8445}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - {protocol: TCP, port: 8404}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: meet-shard
+      ports:
+        - {protocol: TCP, port: 8000}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: meet-haproxy
+      ports:
+        - {protocol: TCP, port: 8445}

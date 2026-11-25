@@ -1,0 +1,17 @@
+# Kustomize base of the Meet entry (k8s-pods/meet-haproxy/README.md): two HAProxy pods behind the
+# Hetzner Cloud Load Balancer meet-lb, routing rooms to the two shards. Upstream haproxy 2.8 at an
+# exact tag pinned by digest (cluster tooling exception); config and start script from a generated
+# ConfigMap; the certificate from the Secret meet-tls (never in Git, see secret.example.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: meet
+resources:
+  - statefulset.yaml
+  - services.yaml
+  - pdb.yaml
+  - networkpolicy.yaml
+configMapGenerator:
+  - name: meet-haproxy
+    files:
+      - haproxy.cfg.template
+      - start.sh

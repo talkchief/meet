@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: meet-asap
+  labels:
+    app.kubernetes.io/name: meet-asap
+    app.kubernetes.io/part-of: meet
+spec:
+  selector:
+    app.kubernetes.io/name: meet-asap
+  ports:
+    - {name: http, port: 8080, targetPort: http, protocol: TCP}

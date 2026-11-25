@@ -1,0 +1,95 @@
+# Cluster Autoscaler, Hetzner provider (design 5.8). It manages only the servers of its three node
+# groups (CPX22 since the owner's change of 2026-11-25, labelled talkchief.io/pool=cowork-jvb and tainted, created from the Talos image with
+# the machine configuration as user data); workers and control planes belong to no node group and
+# are never added or removed. A pending bridge pod (KEDA asked for one more) makes it create a
+# CPX22 in the site with the fewest bridges (--balance-similar-node-groups); a bridge node empty for
+# 10 minutes is removed. Bridge pods carry safe-to-evict=false, so a node with a running bridge is
+# never removed. The minor version must match the cluster's Kubernetes minor (1.37 assumed).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cluster-autoscaler
+  labels:
+    app.kubernetes.io/name: cluster-autoscaler
+    app.kubernetes.io/part-of: meet
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cluster-autoscaler
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cluster-autoscaler
+        app.kubernetes.io/part-of: meet
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8085"
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: cluster-autoscaler
+      priorityClassName: system-cluster-critical
+      # On a worker, never on a bridge node (it would keep that node from being removed).
+      nodeSelector:
+        talkchief.io/pool: cowork-wk
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: cluster-autoscaler
+          image: registry.k8s.io/autoscaling/cluster-autoscaler:v1.37.0@sha256:bad6629616b9544dc5e358ee030f6d1d4047192e484d2e15bffb0c9fcd90b949
+          command:
+            - ./cluster-autoscaler
+            - --cloud-provider=hetzner
+            # <min>:<max>:<server type>:<location>:<name>
+            - --nodes=1:2:cpx22:hel1:cowork-jvb-hel
+            - --nodes=1:2:cpx22:nbg1:cowork-jvb-nbg
+            - --nodes=0:2:cpx22:fsn1:cowork-jvb-fsn
+            - --balance-similar-node-groups
+            # Keep the minimum bridges (one in hel1, one in nbg1) even before a pod asks for them. Without
+            # it the first scale-up put both bridges in fsn1 (test cluster 2026-11-25): the minimum is
+            # only a floor for scale-down unless enforced.
+            - --enforce-node-group-min-size=true
+            # The groups differ only in these labels, which must not stop them being balanced.
+            - --balancing-ignore-label=hcloud/node-group
+            - --balancing-ignore-label=csi.hetzner.cloud/location
+            - --scale-down-unneeded-time=10m
+            - --scale-down-delay-after-add=10m
+            - --max-node-provision-time=10m
+            - --expander=least-waste
+            # Bridges use emptyDir; they are protected by safe-to-evict=false instead.
+            - --skip-nodes-with-local-storage=false
+            - --skip-nodes-with-system-pods=true
+            - --v=2
+          env:
+            - name: HCLOUD_TOKEN
+              valueFrom: {secretKeyRef: {name: cluster-autoscaler-hcloud, key: token}}
+            # Base64 JSON: the Talos image per architecture and, per node group, the Talos machine
+            # configuration (user data), the node labels and the taint (README).
+            - name: HCLOUD_CLUSTER_CONFIG
+              valueFrom: {secretKeyRef: {name: cluster-autoscaler-hcloud, key: cluster-config}}
+            # Private network and Cloud Firewall of the bridge nodes (Terraform names), set by the overlay.
+            - {name: HCLOUD_NETWORK, value: REPLACE_IN_OVERLAY}
+            - {name: HCLOUD_FIREWALL, value: REPLACE_IN_OVERLAY}
+            - {name: HCLOUD_PUBLIC_IPV4, value: "true"}
+            - {name: HCLOUD_PUBLIC_IPV6, value: "false"}
+          ports:
+            - {name: metrics, containerPort: 8085, protocol: TCP}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          livenessProbe:
+            httpGet: {path: /health-check, port: metrics}
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: {path: /health-check, port: metrics}
+            periodSeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]

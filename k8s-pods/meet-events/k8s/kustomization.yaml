@@ -1,0 +1,13 @@
+# Kustomize base of the room-events relay (k8s-pods/meet-events/README.md). Upstream nginx (unprivileged
+# build) at an exact tag pinned by digest, configuration from a generated ConfigMap.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: meet
+resources:
+  - deployment.yaml
+  - service.yaml
+  - networkpolicy.yaml
+configMapGenerator:
+  - name: meet-events-nginx
+    files:
+      - default.conf=events.conf

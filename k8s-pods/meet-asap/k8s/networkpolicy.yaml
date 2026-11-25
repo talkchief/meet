@@ -1,0 +1,22 @@
+# Only the shard pods (Prosody) read the keys; the key server reaches nothing (DNS aside, allowed
+# for every pod by k8s-pods/meet-namespace/k8s/networkpolicy.yaml).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: meet-asap
+  labels:
+    app.kubernetes.io/name: meet-asap
+    app.kubernetes.io/part-of: meet
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: meet-asap
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: meet-shard
+      ports:
+        - {protocol: TCP, port: 8080}
+  egress: []

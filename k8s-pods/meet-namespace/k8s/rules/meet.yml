@@ -1,0 +1,60 @@
+# Meet alerts (design 10.2). Evaluated by the shared Prometheus of the voip cluster on this cluster's
+# series (cluster="cowork", added by the cluster's Prometheus agent). Depends on: HAProxy's
+# Prometheus exporter (k8s-pods/meet-haproxy, port 8404), the bridges' /metrics (k8s-pods/meet-jvb sidecar,
+# port 9888), kube-state-metrics with node labels talkchief.io/pool and topology.kubernetes.io/zone
+# allowed (--metric-labels-allowlist=nodes=[talkchief.io/pool,topology.kubernetes.io/zone]) and
+# node-exporter series carrying a `node` label.
+groups:
+  - name: meet
+    rules:
+      - alert: MeetShardDown
+        expr: max by (server) (haproxy_server_status{cluster="cowork",namespace="meet",proxy="shards_xmpp",state="UP"}) == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Meet shard {{ $labels.server }} has been out of the HAProxy rotation for 2 minutes"
+          description: "Its rooms run on the other shard. Check the shard pod (web, Prosody, Jicofo) in namespace meet."
+      - alert: JvbStressHigh
+        expr: avg(jitsi_jvb_stress{cluster="cowork",namespace="meet"}) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Video bridges average stress {{ $value }} above 0.8 for 5 minutes"
+          description: "The autoscaler is not keeping up (pool at its maximum, no node, or KEDA down)."
+      - alert: JvbPoolAtMax
+        expr: >-
+          kube_horizontalpodautoscaler_status_current_replicas{cluster="cowork",namespace="meet",horizontalpodautoscaler="keda-hpa-meet-jvb"}
+          >= kube_horizontalpodautoscaler_spec_max_replicas{cluster="cowork",namespace="meet",horizontalpodautoscaler="keda-hpa-meet-jvb"}
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The video bridge pool has been at its maximum for 15 minutes"
+          description: "Raise maxReplicaCount only after the scaling test (owner decision, design 6.3)."
+      - alert: JvbPoolBelowMin
+        expr: >-
+          (sum(kube_deployment_status_replicas_available{cluster="cowork",namespace="meet",deployment="meet-jvb"}) < 2)
+          or
+          (count(count by (label_topology_kubernetes_io_zone) (
+             kube_pod_info{cluster="cowork",namespace="meet",pod=~"meet-jvb-.*"}
+             * on (node) group_left (label_topology_kubernetes_io_zone) kube_node_labels{cluster="cowork"}
+           )) < 2)
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Fewer than two video bridges, or all bridges in one site, for 10 minutes"
+          description: "Losing one node or site would stop all meetings' media. Check the Cluster Autoscaler and the cowork-jvb node groups."
+      - alert: JvbCpuSteal
+        expr: >-
+          avg by (node) (rate(node_cpu_seconds_total{cluster="cowork",mode="steal"}[5m]))
+          * on (node) group_left () max by (node) (kube_node_labels{cluster="cowork",label_talkchief_io_pool="cowork-jvb"})
+          > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Bridge node {{ $labels.node }} CPU steal above 5 % for 10 minutes"
+          description: "Shared vCPU neighbours take time from the bridge (jitter, frozen video). The fix is to change only the bridge node groups' server type (design 5.8)."

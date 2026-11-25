@@ -1,0 +1,44 @@
+# Least privilege for the bridge sidecar: its token may change only its own pod (the pod named in
+# the token, extra authentication.kubernetes.io/pod-name, Kubernetes 1.30+) and only the
+# controller.kubernetes.io/pod-deletion-cost and talkchief.io/bridge-site annotations. Cluster-scoped
+# objects, so the namespace set by kustomize does not apply to them.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: meet-jvb-own-pod-only
+  labels:
+    app.kubernetes.io/name: meet-jvb
+    app.kubernetes.io/part-of: meet
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [UPDATE]
+        resources: [pods]
+  matchConditions:
+    - name: only-the-bridge-sidecar
+      expression: request.userInfo.username == 'system:serviceaccount:meet:meet-jvb'
+  validations:
+    - expression: >-
+        'authentication.kubernetes.io/pod-name' in request.userInfo.extra &&
+        request.userInfo.extra['authentication.kubernetes.io/pod-name'][0] == object.metadata.name
+      message: the bridge sidecar may change only its own pod
+    - expression: >-
+        object.spec == oldObject.spec &&
+        (has(object.metadata.labels) ? object.metadata.labels : {}) == (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) &&
+        (has(object.metadata.annotations) ? object.metadata.annotations : {}).filter(k, k != 'controller.kubernetes.io/pod-deletion-cost' && k != 'talkchief.io/bridge-site')
+          .all(k, has(oldObject.metadata.annotations) && k in oldObject.metadata.annotations && oldObject.metadata.annotations[k] == object.metadata.annotations[k])
+      message: the bridge sidecar may change only the pod-deletion-cost and bridge-site annotations
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: meet-jvb-own-pod-only
+  labels:
+    app.kubernetes.io/name: meet-jvb
+    app.kubernetes.io/part-of: meet
+spec:
+  policyName: meet-jvb-own-pod-only
+  validationActions: [Deny]

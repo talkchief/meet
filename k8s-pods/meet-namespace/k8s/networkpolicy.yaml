@@ -1,0 +1,34 @@
+# Default deny in namespace meet (design 8.3): no pod takes or opens a connection unless a policy of
+# its own pod (k8s-pods/meet-*/k8s/networkpolicy.yaml) allows it. Every pod may use cluster DNS.
+# Host-network pods (the bridges, k8s-pods/meet-jvb) are outside NetworkPolicy altogether; the Hetzner
+# Cloud Firewall in Terraform guards their nodes.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  labels:
+    app.kubernetes.io/part-of: meet
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  labels:
+    app.kubernetes.io/part-of: meet
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}

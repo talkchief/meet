@@ -1,0 +1,37 @@
+# Kustomize base of the two Meet shards (k8s-pods/meet-shard/README.md). The web container runs the
+# meet-web image (k8s-pods/meet-web); its tag 000000000000 is a PLACEHOLDER replaced with the image's
+# 12-hex commit tag and digest when the image is built, never latest. Prosody and Jicofo are the
+# upstream images at stable-11248-2 pinned by digest (cluster tooling exception), with TalkChief
+# code and settings from the generated ConfigMaps below. config/plugins/*.lua,
+# config/custom-config.js and config/custom-interface_config.js are byte copies of deploy/ (the
+# test fails when they drift); config/custom-meet.conf and config/shard.env are the Kubernetes
+# variants of deploy/web/custom-meet.conf and deploy/env.talkchief; config/custom-config.k8s.js is
+# appended to custom-config.js (P2P STUN on turn1/2/3).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: meet
+resources:
+  - deployment-shard-0.yaml
+  - deployment-shard-1.yaml
+  - services.yaml
+  - networkpolicy.yaml
+images:
+  - name: meet-web
+    newName: ghcr.io/talkchief/meet-web
+    newTag: "000000000000"
+configMapGenerator:
+  - name: meet-shard-env
+    envs:
+      - config/shard.env
+  - name: meet-shard-web
+    files:
+      - config/custom-config.js
+      - config/custom-config.k8s.js
+      - config/custom-interface_config.js
+      - config/custom-meet.conf
+      - config/custom-jicofo.conf
+      - config/talkchief-prosody.cfg.lua
+  - name: meet-prosody-plugins
+    files:
+      - config/plugins/mod_talkchief_room_events.lua
+      - config/plugins/mod_talkchief_room_policy.lua

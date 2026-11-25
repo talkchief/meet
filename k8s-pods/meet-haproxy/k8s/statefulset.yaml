@@ -1,0 +1,98 @@
+# Two HAProxy pods. A StatefulSet rather than a Deployment: HAProxy peers are named in the config
+# and each pod must know which one it is (its stable name meet-haproxy-0/-1) and reach the other by
+# a stable DNS name (headless Service meet-haproxy-peers). Parallel start, so neither waits for the
+# other. Required anti-affinity keeps them on different workers.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: meet-haproxy
+  labels:
+    app.kubernetes.io/name: meet-haproxy
+    app.kubernetes.io/part-of: meet
+spec:
+  replicas: 2
+  serviceName: meet-haproxy-peers
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: meet-haproxy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: meet-haproxy
+        app.kubernetes.io/part-of: meet
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8404"
+        prometheus.io/path: /metrics
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 30
+      nodeSelector:
+        talkchief.io/pool: cowork-wk
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: meet-haproxy
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 99
+        runAsGroup: 99
+        fsGroup: 99
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: haproxy
+          image: docker.io/library/haproxy:2.8.31@sha256:f9e68f79bc73bd2e50527f8263e6a58ce875a2db695423c268bf95ee7230d641
+          command: ["/bin/sh", "/usr/local/etc/haproxy/start.sh"]
+          ports:
+            - {name: http, containerPort: 8080, protocol: TCP}
+            - {name: https, containerPort: 8443, protocol: TCP}
+            - {name: peers, containerPort: 8445, protocol: TCP}
+            - {name: metrics, containerPort: 8404, protocol: TCP}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          # The same page the load balancer checks: up, at least one shard reachable, past the
+          # 30 s startup grace.
+          readinessProbe:
+            httpGet: {path: /talkchief-haproxy-health, port: http}
+            periodSeconds: 5
+            failureThreshold: 2
+          livenessProbe:
+            tcpSocket: {port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: config, mountPath: /usr/local/etc/haproxy, readOnly: true}
+            - {name: certs, mountPath: /etc/haproxy-certs, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: config
+          configMap:
+            name: meet-haproxy
+        # A kubernetes.io/tls Secret (cert-manager or SOPS): HAProxy loads meet.pem and finds its
+        # key next to it as meet.pem.key.
+        - name: certs
+          secret:
+            secretName: meet-tls
+            defaultMode: 0440
+            items:
+              - {key: tls.crt, path: meet.pem}
+              - {key: tls.key, path: meet.pem.key}
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
