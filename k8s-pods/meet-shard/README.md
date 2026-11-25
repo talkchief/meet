@@ -29,20 +29,30 @@ An init container (meet-web image) puts the web settings into the web container'
   - `custom-config.k8s.js`: appended to custom-config.js: P2P STUN on turn1/2/3;
   - `custom-jicofo.conf`: `max-bridge-participants = 15` (per shard: two shards fill a CPX22 bridge to
     about 30, measured on the test cluster 2026-11-25),
-    `max-bridge-participants-per-interval = 30`, and bridge health checks every 2 s with the retry
-    after 1 s (below).
+    `max-bridge-participants-per-interval = 30`, and bridge health checks every second with the retry
+    after 1 s (below);
+  - `talkchief-prosody.cfg.lua`: Prosody override read after the image's configuration (below).
 - **Bridge loss (L20):** Jicofo moves the conferences of a bridge only when the bridge leaves Prosody's
   brewery room or fails a request; a health-check *timeout* only stops new conferences there. A bridge
-  whose node is powered off never closes its XMPP connection, so with the kernel's TCP defaults Prosody
-  kept its session for minutes and media froze until the clients' ICE failure made Jicofo time out a
-  request to that bridge (34-35 s on the test cluster, 2026-11-25). The shard pod sets
-  `net.ipv4.tcp_retries2 = 3` (pod `securityContext.sysctls`, this pod's network namespace only):
-  Prosody's connection to a dead bridge fails about 3 s after its first unanswered stanza, which the
-  2 s health check guarantees, Prosody closes the session, the bridge leaves the room and Jicofo
-  re-invites its participants on the other bridges. The same limit applies to the pod's other TCP
-  connections (clients through HAProxy, the key server, Cowork): a connection that gets no
-  acknowledgement for about 3 s is dropped and the client reconnects. Unsafe sysctl: the workers'
-  kubelet must allow it (k8s-pods/README.md); the namespace is already Pod Security "privileged".
+  whose node is powered off never closes its XMPP connection, so with the image's defaults Prosody kept
+  its session for minutes and media froze until the clients' ICE failure made Jicofo time out a request
+  to that bridge (34-35 s on the test cluster, 2026-11-25). Three settings make Prosody drop it:
+  - Jicofo's health check every second (`custom-jicofo.conf`), so a stanza to a dead bridge is always
+    unanswered within a second;
+  - the shard pod's `net.ipv4.tcp_retries2 = 2` (pod `securityContext.sysctls`, this pod's network
+    namespace only), so that connection fails 1.4-3 s later (3 retransmissions gave up only after
+    6.2 s: the kernel checks the limit when a retransmission timer fires);
+  - `talkchief-prosody.cfg.lua`, copied to Prosody's `/config/conf.d/zz-talkchief.cfg.lua` and read
+    after the image's `jitsi-meet.cfg.lua`: stream-management hibernation on `auth.meet.jitsi` (the
+    bridges' host) 1 s instead of the image's 15 s, which alone kept the dead bridge in the room 16 s
+    after its connection had failed.
+  Then the bridge leaves the room and Jicofo re-invites its participants on the other bridges: media
+  frozen **6-7 s** (M6 re-run, 2026-11-25). The same TCP limit applies to the pod's other connections
+  (clients through HAProxy, the key server, Cowork): a connection with no acknowledgement for about
+  3 s is dropped and the client reconnects (its own session resumes for 60 s). A bridge that is alive
+  but cut off for more than about 3 s also loses its session and its conferences are moved. Unsafe
+  sysctl: the workers' kubelet must allow it (k8s-pods/README.md); the namespace is already Pod
+  Security "privileged".
 - **TURN/STUN:** Prosody's `external_services` lists, for each of `turn1/2/3.talkchief.io`, `stun:`
   3478, `turn:` 3478 UDP and TCP and `turns:` 443, with time-limited (12 h) credentials derived from
   the Meet secret (`turn-meet`); a client gets all three servers, so one lost worker does not break a

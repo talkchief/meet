@@ -54,19 +54,22 @@ spec:
         # fails a request (a health-check timeout moves nothing). With the kernel default (15
         # retransmissions, about 15 min) Prosody kept the dead bridge's session and media stayed frozen
         # until the clients' ICE failure made Jicofo time out a request to that bridge: 34-35 s on the
-        # test cluster (2026-11-25). Three retransmissions give up about 3 s after the first unanswered
-        # stanza (Jicofo's health check sends one every 2 s, custom-jicofo.conf), Prosody closes the
-        # session, the bridge leaves the room and Jicofo re-invites its participants at once. Per pod
+        # test cluster (2026-11-25). Two retransmissions give up 1.4-3 s after the first unanswered
+        # stanza (Jicofo's health check sends one every second, custom-jicofo.conf; three gave up only
+        # after 6.2 s, because the kernel checks the limit when a retransmission timer fires), Prosody
+        # closes the session, ends it after 1 s of hibernation (talkchief-prosody.cfg.lua), the bridge
+        # leaves the room and Jicofo re-invites its participants at once. Per pod
         # network namespace: it covers this pod's connections only. Unsafe sysctl: the workers'
         # kubelet must allow it (allowedUnsafeSysctls, k8s-pods/README.md); namespace meet is already
         # Pod Security "privileged" (the bridges need host networking).
         sysctls:
-          - {name: net.ipv4.tcp_retries2, value: "3"}
+          - {name: net.ipv4.tcp_retries2, value: "2"}
       initContainers:
         # Puts the TalkChief web settings into the web container's /config, as install.sh does on a
         # host: custom-config.js (plus the Kubernetes additions in custom-config.k8s.js) with the
         # versioned branding URL, custom-interface_config.js and the Kubernetes variant of
-        # custom-meet.conf; and custom-jicofo.conf into Jicofo's /config.
+        # custom-meet.conf; custom-jicofo.conf into Jicofo's /config; and the Prosody override
+        # talkchief-prosody.cfg.lua into Prosody's /config/conf.d (bridge loss, L20).
         - name: web-config
           image: meet-web
           command:
@@ -79,6 +82,8 @@ spec:
               mkdir -p /config/nginx
               cp /talkchief/custom-meet.conf /config/nginx/custom-meet.conf
               cp /talkchief/custom-jicofo.conf /jicofo-config/custom-jicofo.conf
+              mkdir -p /prosody-config/conf.d
+              cp /talkchief/talkchief-prosody.cfg.lua /prosody-config/conf.d/zz-talkchief.cfg.lua
           resources:
             requests: {cpu: 10m, memory: 16Mi}
             limits: {cpu: 100m, memory: 64Mi}
@@ -90,6 +95,7 @@ spec:
           volumeMounts:
             - {name: web-config, mountPath: /config}
             - {name: jicofo-config, mountPath: /jicofo-config}
+            - {name: prosody-config, mountPath: /prosody-config}
             - {name: talkchief-web, mountPath: /talkchief, readOnly: true}
       containers:
         - name: web

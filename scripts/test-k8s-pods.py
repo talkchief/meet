@@ -200,8 +200,13 @@ for shard in (shard0, shard1):
           '%s: events secret from Secret meet-events' % name)
     check(all('valueFrom' in penv[k] for k in ('JICOFO_AUTH_PASSWORD', 'JVB_AUTH_PASSWORD')), '%s: XMPP passwords from Secrets' % name)
     check(any(p['containerPort'] == 5222 for p in by['prosody']['ports']), '%s: Prosody listens for bridges on 5222' % name)
-    check(spec['securityContext'].get('sysctls') == [{'name': 'net.ipv4.tcp_retries2', 'value': '3'}],
-          '%s: pod sysctl net.ipv4.tcp_retries2 = 3, so Prosody drops a dead bridge within seconds (L20)' % name)
+    check(spec['securityContext'].get('sysctls') == [{'name': 'net.ipv4.tcp_retries2', 'value': '2'}],
+          "%s: pod sysctl net.ipv4.tcp_retries2 = 2, so Prosody's connection to a dead bridge fails within seconds (L20)" % name)
+    init = spec['initContainers'][0]
+    check('cp /talkchief/talkchief-prosody.cfg.lua /prosody-config/conf.d/zz-talkchief.cfg.lua' in init['command'][-1]
+          and {'name': 'prosody-config', 'mountPath': '/prosody-config'} in init['volumeMounts']
+          and {'name': 'prosody-config', 'mountPath': '/config'} in by['prosody']['volumeMounts'],
+          "%s: the init container puts the Prosody override into Prosody's /config/conf.d (read after the image's jitsi-meet.cfg.lua)" % name)
 namespace = find('Namespace', 'meet')
 check(namespace['metadata']['labels']['pod-security.kubernetes.io/enforce'] == 'privileged',
       'namespace meet is Pod Security privileged, which admits the shards\' unsafe sysctl (and the bridges\' host network)')
@@ -251,8 +256,13 @@ jicofo_conf = read('k8s-pods/meet-shard/k8s/config/custom-jicofo.conf')
 check('jicofo.bridge.max-bridge-participants = 15' in jicofo_conf and 'jicofo.bridge.max-bridge-participants-per-interval = 30' in jicofo_conf,
       'custom-jicofo.conf: max-bridge-participants 15, max-bridge-participants-per-interval 30')
 hocon = dict(re.findall(r'^\s*(jicofo\.[a-z.\-]+)\s*=\s*(.+?)\s*$', jicofo_conf, re.M))
-check(hocon.get('jicofo.bridge.health-checks.interval') == '2 seconds' and hocon.get('jicofo.bridge.health-checks.retry-delay') == '1 second',
-      'custom-jicofo.conf: bridge health check every 2 s, retry 1 s after a timeout (L20; defaults 10 s / 5 s)')
+check(hocon.get('jicofo.bridge.health-checks.interval') == '1 second' and hocon.get('jicofo.bridge.health-checks.retry-delay') == '1 second',
+      'custom-jicofo.conf: bridge health check every second, retry 1 s after a timeout (L20; defaults 10 s / 5 s)')
+prosody_override = ' '.join(l for l in read('k8s-pods/meet-shard/k8s/config/talkchief-prosody.cfg.lua').splitlines() if not l.lstrip().startswith('--'))
+check(prosody_override.split() == ['VirtualHost', '"auth.meet.jitsi"', 'smacks_hibernation_time', '=', '1'],
+      "talkchief-prosody.cfg.lua: only the bridges' host auth.meet.jitsi, stream-management hibernation 1 s instead of 15 s (L20)")
+check('XMPP_AUTH_DOMAIN' not in shard_env, "shard.env keeps the image's auth domain auth.meet.jitsi, the host the override names")
+check('config/talkchief-prosody.cfg.lua' in read('k8s-pods/meet-shard/k8s/kustomization.yaml'), 'the Prosody override is in the meet-shard-web ConfigMap')
 check('jicofo.bridge.health-checks.use-presence' not in hocon and 'jicofo.xmpp.client.reply-timeout' not in hocon,
       'custom-jicofo.conf: health checks stay IQ-based and the XMPP reply timeout keeps its default')
 code = lambda text: '\n'.join(l for l in text.splitlines() if not l.lstrip().startswith('#'))

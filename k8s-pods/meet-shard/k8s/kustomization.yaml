@@ -30,6 +30,7 @@ configMapGenerator:
       - config/custom-interface_config.js
       - config/custom-meet.conf
       - config/custom-jicofo.conf
+      - config/talkchief-prosody.cfg.lua
   - name: meet-prosody-plugins
     files:
       - config/plugins/mod_talkchief_room_events.lua
