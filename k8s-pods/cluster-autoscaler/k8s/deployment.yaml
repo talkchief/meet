@@ -49,6 +49,10 @@ spec:
             - --nodes=1:2:cpx22:nbg1:cowork-jvb-nbg
             - --nodes=0:2:cpx22:fsn1:cowork-jvb-fsn
             - --balance-similar-node-groups
+            # Keep the minimum bridges (one in hel1, one in nbg1) even before a pod asks for them. Without
+            # it the first scale-up put both bridges in fsn1 (test cluster 2026-11-25): the minimum is
+            # only a floor for scale-down unless enforced.
+            - --enforce-node-group-min-size=true
             # The groups differ only in these labels, which must not stop them being balanced.
             - --balancing-ignore-label=hcloud/node-group
             - --balancing-ignore-label=csi.hetzner.cloud/location
