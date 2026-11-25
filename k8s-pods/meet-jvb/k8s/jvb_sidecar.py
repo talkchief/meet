@@ -105,7 +105,10 @@ class MetricsProxy(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             return
         try:
-            with urllib.request.urlopen(COLIBRI + '/metrics', timeout=5) as resp:
+            # The bridge's /metrics fails with a NullPointerException (HTTP 500) when the request has
+            # no Accept header (stable-11248-2, test cluster 2026-11-25), so ask for the text format.
+            req = urllib.request.Request(COLIBRI + '/metrics', headers={'Accept': 'text/plain; version=0.0.4'})
+            with urllib.request.urlopen(req, timeout=5) as resp:
                 body = resp.read()
                 ctype = resp.headers.get('Content-Type', 'text/plain')
             self.send_response(200)
