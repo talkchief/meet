@@ -52,6 +52,19 @@ spec:
         fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
+        # Bridge loss (L20): a bridge whose node is powered off never closes its XMPP connection, and
+        # Jicofo moves a conference off a bridge only when the bridge leaves Prosody's brewery room or
+        # fails a request (a health-check timeout moves nothing). With the kernel default (15
+        # retransmissions, about 15 min) Prosody kept the dead bridge's session and media stayed frozen
+        # until the clients' ICE failure made Jicofo time out a request to that bridge: 34-35 s on the
+        # test cluster (2026-11-25). Three retransmissions give up about 3 s after the first unanswered
+        # stanza (Jicofo's health check sends one every 2 s, custom-jicofo.conf), Prosody closes the
+        # session, the bridge leaves the room and Jicofo re-invites its participants at once. Per pod
+        # network namespace: it covers this pod's connections only. Unsafe sysctl: the workers'
+        # kubelet must allow it (allowedUnsafeSysctls, k8s-pods/README.md); namespace meet is already
+        # Pod Security "privileged" (the bridges need host networking).
+        sysctls:
+          - {name: net.ipv4.tcp_retries2, value: "3"}
       initContainers:
         # Puts the TalkChief web settings into the web container's /config, as install.sh does on a
         # host: custom-config.js (plus the Kubernetes additions in custom-config.k8s.js) with the

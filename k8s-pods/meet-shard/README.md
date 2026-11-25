@@ -28,8 +28,21 @@ An init container (meet-web image) puts the web settings into the web container'
     `meet-events` Service, and the shard health page from `feat/ha-shards` (Jicofo REST in the pod);
   - `custom-config.k8s.js`: appended to custom-config.js: P2P STUN on turn1/2/3;
   - `custom-jicofo.conf`: `max-bridge-participants = 15` (per shard: two shards fill a CPX22 bridge to
-    about 30, measured on the test cluster 2026-11-25) and
-    `max-bridge-participants-per-interval = 30`.
+    about 30, measured on the test cluster 2026-11-25),
+    `max-bridge-participants-per-interval = 30`, and bridge health checks every 2 s with the retry
+    after 1 s (below).
+- **Bridge loss (L20):** Jicofo moves the conferences of a bridge only when the bridge leaves Prosody's
+  brewery room or fails a request; a health-check *timeout* only stops new conferences there. A bridge
+  whose node is powered off never closes its XMPP connection, so with the kernel's TCP defaults Prosody
+  kept its session for minutes and media froze until the clients' ICE failure made Jicofo time out a
+  request to that bridge (34-35 s on the test cluster, 2026-11-25). The shard pod sets
+  `net.ipv4.tcp_retries2 = 3` (pod `securityContext.sysctls`, this pod's network namespace only):
+  Prosody's connection to a dead bridge fails about 3 s after its first unanswered stanza, which the
+  2 s health check guarantees, Prosody closes the session, the bridge leaves the room and Jicofo
+  re-invites its participants on the other bridges. The same limit applies to the pod's other TCP
+  connections (clients through HAProxy, the key server, Cowork): a connection that gets no
+  acknowledgement for about 3 s is dropped and the client reconnects. Unsafe sysctl: the workers'
+  kubelet must allow it (k8s-pods/README.md); the namespace is already Pod Security "privileged".
 - **TURN/STUN:** Prosody's `external_services` lists, for each of `turn1/2/3.talkchief.io`, `stun:`
   3478, `turn:` 3478 UDP and TCP and `turns:` 443, with time-limited (12 h) credentials derived from
   the Meet secret (`turn-meet`); a client gets all three servers, so one lost worker does not break a

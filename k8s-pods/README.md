@@ -58,6 +58,10 @@ secrets, and runs the bridge sidecar's drain against a stand-in bridge. Known ga
 - No infrastructure: servers, private network, Cloud Firewalls (UDP 10000 on bridge nodes, 443/80 to
   `meet-lb` only), DNS (`meet.talkchief.io`, `turn1/2/3.talkchief.io`) and the Talos image are
   Terraform's. The Talos machine config of the bridge nodes goes into the autoscaler's Secret.
+- The workers' Talos machine config must let the kubelet accept the shards' unsafe sysctl
+  `net.ipv4.tcp_retries2` (`KubeletConfig.config.allowedUnsafeSysctls: [net.ipv4.tcp_retries2]`, the
+  same allowance Cowork's app pods need): without it the shard pods are refused (`SysctlForbidden`).
+  It makes Prosody drop a dead bridge within seconds (bridge loss, k8s-pods/meet-shard/README.md).
 - KEDA, the hcloud CCM, Cilium and the monitoring agent are assumed installed; none is in this PR.
 - coturn (TURN on the three workers) is in the Cowork PR (namespace `media`); Meet only lists it.
 - No image was built: there is no container runtime on the machine that wrote this.
