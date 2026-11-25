@@ -239,10 +239,10 @@ check(shard_env['AUTH_TYPE'] == 'jwt' and shard_env['JWT_ACCEPTED_ISSUERS'] == '
       and shard_env['JWT_SIGN_TYPE'] == 'RS256', 'JWT RS256, issuer talkchief-cowork, audience talkchief-meet')
 check(shard_env['JWT_ASAP_KEYSERVER'] == 'http://meet-asap.meet.svc.cluster.local:8080/asap', 'Prosody fetches public keys from the meet-asap Service')
 check(shard_env['TALKCHIEF_EVENTS_URL'].startswith('http://meet-events.meet.svc.cluster.local:8080/'), 'room events go to the meet-events relay')
-check(shard_env.get('MAX_BRIDGE_PARTICIPANTS') == '25', 'Jicofo max participants per bridge set explicitly (25, CPX22 placeholder)')
+check(shard_env.get('MAX_BRIDGE_PARTICIPANTS') == '15', 'Jicofo max participants per bridge set explicitly (15 per shard, about 30 per CPX22 bridge)')
 jicofo_conf = read('k8s-pods/meet-shard/k8s/config/custom-jicofo.conf')
-check('jicofo.bridge.max-bridge-participants = 25' in jicofo_conf and 'jicofo.bridge.max-bridge-participants-per-interval = 30' in jicofo_conf,
-      'custom-jicofo.conf: max-bridge-participants 25, max-bridge-participants-per-interval 30')
+check('jicofo.bridge.max-bridge-participants = 15' in jicofo_conf and 'jicofo.bridge.max-bridge-participants-per-interval = 30' in jicofo_conf,
+      'custom-jicofo.conf: max-bridge-participants 15, max-bridge-participants-per-interval 30')
 code = lambda text: '\n'.join(l for l in text.splitlines() if not l.lstrip().startswith('#'))
 meet_conf = code(read('k8s-pods/meet-shard/k8s/config/custom-meet.conf'))
 host_conf = read('deploy/web/custom-meet.conf')

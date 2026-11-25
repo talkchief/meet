@@ -80,4 +80,5 @@ secrets, and runs the bridge sidecar's drain against a stand-in bridge. Known ga
   private network. Cilium transparent encryption, if the owner wants it, covers it.
 - Cowork needs a staleness timeout for rooms (a lost shard never sends `room_destroyed`, gate G11).
 - Rotate the Meet TURN secret as it moves (gate G12); every Secret is generated fresh.
-- Raise the bridge maximum (4) and `MAX_BRIDGE_PARTICIPANTS` (25) only after the scaling test.
+- Raise the bridge maximum (4) only after a test at that size; `MAX_BRIDGE_PARTICIPANTS` is 15 per shard
+  (about 30 per CPX22 bridge with two shards, test cluster 2026-11-25).

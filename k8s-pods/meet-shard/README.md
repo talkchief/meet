@@ -27,7 +27,8 @@ An init container (meet-web image) puts the web settings into the web container'
     `cowork-app.cowork.svc.cluster.local:8065` (Host `cowork.talkchief.io`), kube-dns, the
     `meet-events` Service, and the shard health page from `feat/ha-shards` (Jicofo REST in the pod);
   - `custom-config.k8s.js`: appended to custom-config.js: P2P STUN on turn1/2/3;
-  - `custom-jicofo.conf`: `max-bridge-participants = 25` (CPX22 placeholder) and
+  - `custom-jicofo.conf`: `max-bridge-participants = 15` (per shard: two shards fill a CPX22 bridge to
+    about 30, measured on the test cluster 2026-11-25) and
     `max-bridge-participants-per-interval = 30`.
 - **TURN/STUN:** Prosody's `external_services` lists, for each of `turn1/2/3.talkchief.io`, `stun:`
   3478, `turn:` 3478 UDP and TCP and `turns:` 443, with time-limited (12 h) credentials derived from
