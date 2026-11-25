@@ -20,6 +20,7 @@ import http.server
 import ipaddress
 import json
 import os
+import signal
 import shutil
 import ssl
 import sys
@@ -122,6 +123,10 @@ class MetricsProxy(http.server.BaseHTTPRequestHandler):
 
 
 def run():
+    # PID 1 of the container: without a handler the kernel ignores SIGTERM, so after the preStop drain
+    # the pod waited out terminationGracePeriodSeconds (3 h) and kept its bridge node (test cluster
+    # 2026-11-25). The drain itself runs in the preStop process, so exiting here is safe.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     port = int(os.environ.get('METRICS_PORT', '9888'))
     server = http.server.ThreadingHTTPServer(('0.0.0.0', port), MetricsProxy)
     threading.Thread(target=server.serve_forever, daemon=True).start()
