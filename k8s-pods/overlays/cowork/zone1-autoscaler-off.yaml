@@ -1,0 +1,10 @@
+# zone1 production: the Cluster Autoscaler is off at go-live (owner decision, 2026-11-26: fixed bridges first,
+# cowork-nbg1-bridge1 and cowork-hel1-bridge1). Its objects stay, with no pod; turning it on is this one value
+# plus its Secret cluster-autoscaler-hcloud (the cluster's own token and the bridges' Talos config).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cluster-autoscaler
+  namespace: kube-system
+spec:
+  replicas: 0
