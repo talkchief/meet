@@ -3,7 +3,7 @@
 # cowork-meet-lb-ipv6 (2a01:4f8:c012:5069::/64, id 165242066), auto-delete off and delete protection on, and at
 # 10.1.0.181 on CT-Network1, the address the nodes' Talos firewall allows to the node ports. A Primary IP binds
 # the LB to its location, so `location: fsn1` replaces `network-zone` (null removes it). Meet stays DNS-only
-# with its own Let's Encrypt certificate in HAProxy (TCP passthrough); the Cloudflare origin certificate of
+# with the Sectigo *.talkchief.io certificate in HAProxy (TCP passthrough); the Cloudflare origin certificate of
 # cowork-lb is never used here.
 apiVersion: v1
 kind: Service
