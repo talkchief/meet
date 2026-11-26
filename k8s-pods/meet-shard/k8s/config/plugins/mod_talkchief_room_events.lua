@@ -42,7 +42,11 @@ local function send(event, room)
     if not tenant or tenant == '' or not name or name == '' then
         return;
     end
-    local body = json.encode({ event = event; tenant = tenant; room = name; ts = os.time() });
+    -- reason: why the room was closed, when a TalkChief module closed it
+    -- ("host_left" from mod_talkchief_host_drop); Cowork then ends a Meet now
+    -- meeting at once instead of after its own grace period.
+    local reason = event == 'room_destroyed' and room._data and room._data.talkchief_end_reason or nil;
+    local body = json.encode({ event = event; tenant = tenant; room = name; ts = os.time(); reason = reason });
     http.request(url, {
         method = 'POST';
         body = body;
