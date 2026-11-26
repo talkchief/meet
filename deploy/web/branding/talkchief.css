@@ -437,6 +437,10 @@ div:has(> div > .popover [class*="hangupMenu"]) {
 .tc-media-blocked strong { display: block; margin-bottom: 6px; color: #fff; font-size: 15px; font-weight: 600; }
 .tc-media-blocked p { margin: 0 0 14px; }
 .tc-media-blocked div { display: flex; gap: 8px; justify-content: flex-end; }
+/* Meet now host leaving (static/talkchief-host-leave.js): the new-host picker
+   and the buttons, which may wrap in a narrow window. */
+.tc-host-leave select { display: block; width: 100%; margin: 0 0 12px; padding: 6px 8px; border-radius: 6px; font: inherit; }
+.tc-host-leave div { flex-wrap: wrap; }
 .tc-media-blocked button {
     padding: 8px 16px;
     border: 0;
