@@ -69,8 +69,8 @@ def extra_checks(check):
           'the provider-bound Cluster Autoscaler comes in through the Hetzner component only')
     lb = [o for o in render('k8s-pods/overlays/cowork') if o['kind'] == 'Service' and o['metadata']['name'] == 'meet-haproxy']
     ann = lb[0]['metadata'].get('annotations', {}) if lb else {}
-    check(lb and ann.get('load-balancer.hetzner.cloud/name') == 'meet-lb',
-          'the cluster overlay still gives meet-haproxy the meet-lb annotations (%d)' % len(ann))
+    check(lb and ann.get('load-balancer.hetzner.cloud/name') == 'cowork-meet-lb' and ann.get('load-balancer.hetzner.cloud/location') == 'fsn1',
+          'the cluster overlay gives meet-haproxy the load balancer annotations, as cowork-meet-lb in fsn1 (zone1; %d)' % len(ann))
     base = [o for o in render('k8s-pods/meet-haproxy/k8s') if o['kind'] == 'Service' and o['metadata']['name'] == 'meet-haproxy']
     check(base and base[0]['spec']['type'] == 'LoadBalancer' and base[0]['spec'].get('externalTrafficPolicy') == 'Local'
           and not base[0]['metadata'].get('annotations'),

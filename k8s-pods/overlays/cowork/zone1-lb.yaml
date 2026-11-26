@@ -1,0 +1,19 @@
+# zone1 production (owner "Go, as recommended", 2026-11-26; kz5 cowork production plan): the Meet load balancer is
+# cowork-meet-lb in fsn1, on the Primary IPs cowork-meet-lb-ipv4 (46.224.130.25, id 165242055) and
+# cowork-meet-lb-ipv6 (2a01:4f8:c012:5069::/64, id 165242066), auto-delete off and delete protection on, and at
+# 10.1.0.181 on CT-Network1, the address the nodes' Talos firewall allows to the node ports. A Primary IP binds
+# the LB to its location, so `location: fsn1` replaces `network-zone` (null removes it). Meet stays DNS-only
+# with its own Let's Encrypt certificate in HAProxy (TCP passthrough); the Cloudflare origin certificate of
+# cowork-lb is never used here.
+apiVersion: v1
+kind: Service
+metadata:
+  name: meet-haproxy
+  namespace: meet
+  annotations:
+    load-balancer.hetzner.cloud/name: cowork-meet-lb
+    load-balancer.hetzner.cloud/network-zone: null
+    load-balancer.hetzner.cloud/location: fsn1
+    load-balancer.hetzner.cloud/public-net-ipv4: "165242055"
+    load-balancer.hetzner.cloud/public-net-ipv6: "165242066"
+    load-balancer.hetzner.cloud/private-ipv4: 10.1.0.181

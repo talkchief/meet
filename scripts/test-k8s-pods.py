@@ -166,6 +166,8 @@ for obj in WORKLOADS:
         check(':latest' not in image and image != 'latest', '%s: no latest tag' % label)
         if image in IMAGES:
             name, tag = IMAGES[image]
+            if name in IMAGES and name != image:
+                name, tag = IMAGES[name][0], IMAGES[name][1]
             if re.fullmatch(r'0{12}', str(tag)):
                 gap('%s runs %s:%s, a placeholder until the meet-web image is built and pushed (no container runtime here)' % (label, name, tag))
             else:
@@ -333,7 +335,14 @@ lb = find('Service', 'meet-haproxy')
 ann = lb['metadata']['annotations']
 P = 'load-balancer.hetzner.cloud/'
 ports = dict((p['name'], p) for p in lb['spec']['ports'])
-check(lb['spec']['type'] == 'LoadBalancer' and ann[P + 'name'] == 'meet-lb' and ann[P + 'type'] == 'lb11', 'Hetzner LB meet-lb, type lb11')
+check(lb['spec']['type'] == 'LoadBalancer' and ann[P + 'name'] == 'cowork-meet-lb' and ann[P + 'type'] == 'lb11', 'Hetzner LB cowork-meet-lb, type lb11')
+# zone1 production (k8s-pods/overlays/cowork/zone1-lb.yaml): the Primary IPs and the private address the nodes'
+# Talos firewall allows to the node ports; a Primary IP fixes the LB's location (fsn1, not a network zone).
+check(ann.get(P + 'public-net-ipv4') == '165242055' and ann.get(P + 'public-net-ipv6') == '165242066',
+      'zone1: cowork-meet-lb on the Primary IPs cowork-meet-lb-ipv4/-ipv6 (165242055/165242066)')
+check(ann.get(P + 'private-ipv4') == '10.1.0.181' and ann.get(P + 'location') == 'fsn1' and ann.get(P + 'network-zone') is None,
+      'zone1: cowork-meet-lb at 10.1.0.181 on CT-Network1, in fsn1 with its Primary IPs')
+check(not any('certificate' in k for k in ann), 'cowork-meet-lb holds no certificate (Meet keeps its own Let\'s Encrypt certificate in HAProxy)')
 check(ann[P + 'use-private-ip'] == 'true', 'meet-lb targets the workers over the private network')
 check(ann[P + 'protocol'] == 'tcp' and ports['https']['port'] == 443, 'TCP passthrough on 443 (TLS ends in HAProxy)')
 check(ann[P + 'health-check-protocol'] == 'http' and ann[P + 'health-check-http-path'] == '/talkchief-haproxy-health'
@@ -433,7 +442,9 @@ check(pod_spec(ca)['nodeSelector'] == {'talkchief.io/pool': 'cowork-wk'}, 'autos
 caenv = env_of(pod_spec(ca)['containers'][0])
 check(all(caenv[k]['valueFrom']['secretKeyRef']['name'] == 'cluster-autoscaler-hcloud' for k in ('HCLOUD_TOKEN', 'HCLOUD_CLUSTER_CONFIG')),
       'HCLOUD token and Talos machine config from a Secret')
-gap('HCLOUD_NETWORK / HCLOUD_FIREWALL are placeholders until Terraform names them (k8s-pods/overlays/cowork)')
+check(ca['spec']['replicas'] == 0, 'zone1: the autoscaler has no pod at go-live (owner: fixed bridges first)')
+check('value: CT-Network1' in read('k8s-pods/overlays/cowork/kustomization.yaml') and 'value: cowork-bridge-fw' in read('k8s-pods/overlays/cowork/kustomization.yaml'),
+      'zone1: autoscaler network CT-Network1 and bridge firewall cowork-bridge-fw, ready for when it is turned on')
 
 # ------------------------------------------------------------------ NetworkPolicies
 deny = find('NetworkPolicy', 'default-deny')

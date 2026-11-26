@@ -3,11 +3,13 @@
 # balancer and the Cluster Autoscaler). Argo CD of the voip cluster applies it; nothing here is
 # applied by hand. Another provider swaps that one component (k8s-pods/GCP-PORTING.md).
 #
-# PLACEHOLDERS to fill before the first sync (scripts/test-k8s-pods.py lists them as known gaps):
+# zone1 production values (2026-11-26): cowork-meet-lb's Primary IPs and private address (zone1-lb.yaml), the
+# autoscaler off with fixed bridges (zone1-autoscaler-off.yaml; its network CT-Network1 and firewall
+# cowork-bridge-fw set for when it is turned on), and meet-web by digest.
+# PLACEHOLDER to fill before KEDA can scale (scripts/test-k8s-pods.py lists it as a known gap):
 # - KEDA's Prometheus: the shared Prometheus of the voip cluster, reachable from this cluster (URL
 #   and, if it needs one, a KEDA TriggerAuthentication); not known until that endpoint is exposed.
-# - HCLOUD_NETWORK / HCLOUD_FIREWALL: the names Terraform gives the cowork private network and the
-#   bridge nodes' Cloud Firewall.
+#   Until then the ScaledObject is not applied and the bridges run the JVB Deployment's own replicas.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
@@ -48,7 +50,15 @@ patches:
     patch: |-
       - op: replace
         path: /spec/template/spec/containers/0/env/2/value
-        value: REPLACE_TERRAFORM_NETWORK_NAME
+        value: CT-Network1
       - op: replace
         path: /spec/template/spec/containers/0/env/3/value
-        value: REPLACE_TERRAFORM_BRIDGE_FIREWALL_NAME
+        value: cowork-bridge-fw
+  - path: zone1-lb.yaml
+  - path: zone1-autoscaler-off.yaml
+images:
+  # talkchief/meet a6ade10e426d (talkchief with Meet #22 and #23), k8s-pods/meet-web/image, pushed 2026-11-26.
+  # Named as the base already renamed it (meet-shard: meet-web -> ghcr.io/talkchief/meet-web).
+  - name: ghcr.io/talkchief/meet-web
+    newTag: "a6ade10e426d"
+    digest: sha256:975e156f4dcd4e6838190e40c418a3d2265876d301f985add9092e5daee8f2b7
