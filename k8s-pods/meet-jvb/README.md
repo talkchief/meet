@@ -39,7 +39,8 @@ Design 5.8, with the owner's change to CPX22 bridge nodes (2026-11-25).
   ValidatingAdmissionPolicy `meet-jvb-own-pod-only` to changing its own pod (the pod name bound into
   its token) and only the deletion-cost and `talkchief.io/bridge-site` annotations. The
   token is mounted into the sidecar only, never into the bridge.
-- **Autoscaling (`scaledobject.yaml`, KEDA):** min 2, max 4; add a bridge when the average stress
+- **Autoscaling (`k8s-pods/meet-jvb/keda`, KEDA; not composed by the cowork overlay until KEDA's Prometheus
+  address exists, so the bridges run the Deployment's 2 replicas):** min 2, max 4; add a bridge when the average stress
   stays above 0.5 for 2 minutes or when there are more than 18 participants per bridge; shrink only
   after 30 minutes below 0.2, one bridge per 15 minutes. The Cluster Autoscaler (k8s-pods/cluster-autoscaler)
   adds the node a pending bridge needs.
