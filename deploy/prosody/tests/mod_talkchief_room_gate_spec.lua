@@ -4,6 +4,7 @@
 -- covers the real meeting service.
 
 local hooks, tasks, requests = {}, {}, {};
+local priority;
 local healthcheck, ready = false, true;
 local reply; -- function (callback) answering the next request
 
@@ -15,7 +16,7 @@ end
 
 local bodies = {};
 package.loaded['cjson.safe'] = {
-    encode = function (t) return 'check:' .. t.tenant .. '/' .. t.room end,
+    encode = function (t) return 'check:' .. t.tenant .. '/' .. t.room .. (t.guest and ':guest' or '') end,
     decode = function (s) return bodies[s] end,
 };
 package.loaded['util.hashes'] = { hmac_sha256 = function () return 'sig' end };
@@ -25,6 +26,7 @@ package.loaded['util.stanza'] = {
 };
 package.loaded['util.jid'] = {
     node = function (j) return j:match('^(.-)@') end,
+    host = function (j) return j:match('@([^/]+)') end,
 };
 package.loaded['net.http'] = {
     request = function (url, options, callback)
@@ -52,7 +54,11 @@ _G.module = {
         end
         return {};
     end,
-    hook = function (_, name, fn) hooks[name] = fn end,
+    hook = function (_, name, fn, prio)
+        hooks[name] = fn;
+        if name == 'muc-occupant-pre-join' then priority = prio end
+    end,
+    get_option_string = function (_, _key, default) return default end,
 };
 
 local mod = dofile('deploy/prosody/plugins/mod_talkchief_room_gate.lua');
@@ -142,6 +148,25 @@ describe('mod_talkchief_room_gate', function ()
         ready = true;
         local result = join(later);
         assert.is_true(result, 'the next join uses the answer that came meanwhile');
+    end);
+
+    it('says whether the joiner is a guest, and keeps guest and member answers apart', function ()
+        local room = new_room();
+        reply = answer(200, { allow = false, reason = 'guests_off' });
+        local result, sent = join(room, 'x1@guest.meet.jitsi');
+        assert.is_true(result, 'guest refused');
+        assert.are.same({ kind = 'auth', condition = 'not-authorized' }, sent[1]);
+        assert.truthy(requests[1].options.body:match(':guest$'));
+
+        reply = answer(200, { allow = true });
+        assert.is_nil(join(room, 'member@meet.jitsi'), 'member let in');
+        assert.is_nil(requests[2].options.body:match(':guest$'));
+        assert.is_true(join(room, 'x2@guest.meet.jitsi'), 'the guest answer is cached for guests');
+        assert.are.equal(2, #requests);
+    end);
+
+    it('runs after the room policy (priority below 20)', function ()
+        assert.is_true(priority < 20);
     end);
 
     it('never checks health-check rooms or Jitsi components', function ()
