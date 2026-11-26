@@ -19,4 +19,5 @@ spec:
               app.kubernetes.io/name: meet-shard
       ports:
         - {protocol: TCP, port: 8080}
-  egress: []
+  # No egress rule: with Egress in policyTypes that allows no egress. Not written as `egress: []`, which the
+  # API server drops, so Argo CD's server-side diff saw a change on every comparison (adoption diff, 2026-11-26).

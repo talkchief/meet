@@ -12,7 +12,7 @@
 # scaling; then the owner raises it. Metric names as stable-11248-2 serves them (read on the test
 # cluster 2026-11-25): jitsi_jvb_stress and jitsi_jvb_current_endpoints (participants on the bridge);
 # jitsi_jvb_stress and jitsi_jvb_current_endpoints do not exist.
-# serverAddress is set by the overlay (k8s-pods/overlays/cowork).
+# serverAddress is set by the overlay that composes k8s-pods/meet-jvb/keda (none does yet).
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:

@@ -1,15 +1,18 @@
 # Overlay of the cowork cluster (design: kz5 doc/collaboration_cluster_architecture.md): every Meet
 # base in apply order, plus the Hetzner component (k8s-pods/overlays/hetzner: the meet-lb load
-# balancer and the Cluster Autoscaler). Argo CD of the voip cluster applies it; nothing here is
-# applied by hand. Another provider swaps that one component (k8s-pods/GCP-PORTING.md).
+# balancer and the Cluster Autoscaler). Argo CD of the cowork cluster applies it (Application meet-zone1,
+# in talkchief_cowork pods/overlays/hetzner/cluster/argocd); nothing here is applied by hand. Another provider swaps that one component (k8s-pods/GCP-PORTING.md).
 #
 # zone1 production values (2026-11-26): cowork-meet-lb's Primary IPs and private address (zone1-lb.yaml), the
 # autoscaler off with fixed bridges (zone1-autoscaler-off.yaml; its network CT-Network1 and firewall
 # cowork-bridge-fw set for when it is turned on), and meet-web by digest.
-# PLACEHOLDER to fill before KEDA can scale (scripts/test-k8s-pods.py lists it as a known gap):
-# - KEDA's Prometheus: the shared Prometheus of the voip cluster, reachable from this cluster (URL
-#   and, if it needs one, a KEDA TriggerAuthentication); not known until that endpoint is exposed.
-#   Until then the ScaledObject is not applied and the bridges run the JVB Deployment's own replicas.
+# KEDA is NOT composed yet (scripts/test-k8s-pods.py lists it as a known gap): its Prometheus, the shared
+# Prometheus of the voip cluster reachable from this cluster (URL and, if it needs one, a KEDA
+# TriggerAuthentication), is not known until that endpoint is exposed. Argo CD applies this overlay with
+# auto-sync (Application meet-zone1), so the ScaledObject is left out of the render, not merely unapplied:
+# the bridges run the JVB Deployment's own replicas (2). To turn it on, add ../../meet-jvb/keda to
+# resources and a patch setting both triggers' serverAddress (and add an ignoreDifferences entry for
+# Deployment meet-jvb /spec/replicas to the Application, since KEDA's HPA then owns that field).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
@@ -30,18 +33,6 @@ configMapGenerator:
     literals:
       - ENABLE_OCTO=false
 patches:
-  - target:
-      group: keda.sh
-      version: v1alpha1
-      kind: ScaledObject
-      name: meet-jvb
-    patch: |-
-      - op: replace
-        path: /spec/triggers/0/metadata/serverAddress
-        value: https://REPLACE_VOIP_PROMETHEUS_URL
-      - op: replace
-        path: /spec/triggers/1/metadata/serverAddress
-        value: https://REPLACE_VOIP_PROMETHEUS_URL
   - target:
       group: apps
       version: v1

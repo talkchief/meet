@@ -418,7 +418,16 @@ rules = str(vap['spec']['validations'])
 check("authentication.kubernetes.io/pod-name" in rules and "k != 'controller.kubernetes.io/pod-deletion-cost' && k != 'talkchief.io/bridge-site'" in rules
       and 'object.spec == oldObject.spec' in rules, 'admission policy: own pod only, deletion-cost and bridge-site annotations only')
 
-so = find('ScaledObject', 'meet-jvb')
+# KEDA is a separate kustomization (k8s-pods/meet-jvb/keda) the cowork overlay leaves out until its Prometheus
+# address exists: Argo CD applies the overlay with auto-sync and would otherwise create a ScaledObject with
+# placeholder triggers that owns meet-jvb's replicas (adoption diff, 2026-11-26).
+check(not any(o['kind'] == 'ScaledObject' for _, o in OBJECTS), 'the cowork overlay renders no ScaledObject while KEDA has no Prometheus address')
+check('scaledobject.yaml' not in read('k8s-pods/meet-jvb/k8s/kustomization.yaml')
+      and load('k8s-pods/meet-jvb/keda/kustomization.yaml')[0]['resources'] == ['scaledobject.yaml'],
+      'the ScaledObject lives in k8s-pods/meet-jvb/keda, not in the meet-jvb base')
+check(find('Deployment', 'meet-jvb')['spec']['replicas'] == 2, "without KEDA the bridges run the Deployment's own 2 replicas")
+so = load('k8s-pods/meet-jvb/keda/scaledobject.yaml')[0]
+check(so['kind'] == 'ScaledObject' and so['metadata']['name'] == 'meet-jvb', 'k8s-pods/meet-jvb/keda holds ScaledObject meet-jvb')
 triggers = dict((t['name'], t) for t in so['spec']['triggers'])
 check(so['spec']['minReplicaCount'] == 2 and so['spec']['maxReplicaCount'] == 4, 'KEDA: min 2, max 4 bridges')
 check(triggers['stress']['metadata']['threshold'] == '0.5' and 'avg_over_time(jitsi_jvb_stress{' in triggers['stress']['metadata']['query']
@@ -428,7 +437,7 @@ check(triggers['participants']['metadata']['threshold'] == '18', 'KEDA: one more
 behavior = so['spec']['advanced']['horizontalPodAutoscalerConfig']['behavior']
 check(behavior['scaleUp']['stabilizationWindowSeconds'] == 120 and behavior['scaleDown']['stabilizationWindowSeconds'] == 1800
       and behavior['scaleDown']['policies'] == [{'type': 'Pods', 'value': 1, 'periodSeconds': 900}], 'HPA: up after 2 min, down one at a time after 30 min')
-gap('KEDA serverAddress is a placeholder until the voip Prometheus endpoint for this cluster exists (k8s-pods/overlays/cowork)')
+gap('KEDA (k8s-pods/meet-jvb/keda) is not composed by k8s-pods/overlays/cowork until the voip Prometheus endpoint for this cluster exists')
 
 # ------------------------------------------------------------------ Cluster Autoscaler
 ca = find('Deployment', 'cluster-autoscaler')

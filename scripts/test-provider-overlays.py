@@ -41,7 +41,7 @@ ENTRY_POINTS = [('k8s-pods/overlays/cowork', 'k8s-pods/overlays/cowork')]
 ARCHIVE_PATHS = ['k8s-pods']
 # Bases that must render without a provider value (comments never reach a render).
 NEUTRAL = ['k8s-pods/%s/k8s' % pod for pod in
-           ('meet-namespace', 'meet-asap', 'meet-events', 'meet-shard', 'meet-haproxy', 'meet-jvb')]
+           ('meet-namespace', 'meet-asap', 'meet-events', 'meet-shard', 'meet-haproxy', 'meet-jvb')] + ['k8s-pods/meet-jvb/keda']
 PROVIDER_PATTERNS = [r'hetzner', r'hcloud', r'talos', r'your-objectstorage\.com']
 # Whole bases that exist only for one provider; composed only through that provider's component.
 PROVIDER_BOUND = {

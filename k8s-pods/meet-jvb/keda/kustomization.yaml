@@ -1,0 +1,11 @@
+# KEDA autoscaling of the video bridges (design 5.8), kept apart from the meet-jvb base: an overlay
+# composes it only once KEDA's Prometheus for that cluster exists and the overlay sets serverAddress
+# (both triggers carry REPLACE_IN_OVERLAY until then). Applied with the placeholder, KEDA would own
+# meet-jvb's replicas through keda-hpa-meet-jvb with triggers that cannot be read; under Argo CD
+# (auto-sync, kz5 doc/cowork_argocd.md) a ScaledObject in the overlay is created, so it must not be
+# rendered before it can work. Until then the bridges run the Deployment's own replicas (2).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: meet
+resources:
+  - scaledobject.yaml
