@@ -35,3 +35,5 @@ configMapGenerator:
     files:
       - config/plugins/mod_talkchief_room_events.lua
       - config/plugins/mod_talkchief_room_policy.lua
+      - config/plugins/mod_talkchief_room_gate.lua
+      - config/plugins/mod_talkchief_host_drop.lua

@@ -248,7 +248,7 @@ check(len(services) == 2 and all(s['spec']['type'] == 'ClusterIP' and {p['port']
       'one ClusterIP Service per shard with web 80 and XMPP 5222')
 
 # ------------------------------------------------------------------ shard config drift against deploy/
-for name in ('mod_talkchief_room_events.lua', 'mod_talkchief_room_policy.lua'):
+for name in ('mod_talkchief_room_events.lua', 'mod_talkchief_room_policy.lua', 'mod_talkchief_room_gate.lua', 'mod_talkchief_host_drop.lua'):
     check(read('k8s-pods/meet-shard/k8s/config/plugins/' + name) == read('deploy/prosody/plugins/' + name), 'Prosody module %s is a byte copy of deploy/' % name)
 for name in ('custom-config.js', 'custom-interface_config.js'):
     check(read('k8s-pods/meet-shard/k8s/config/' + name) == read('deploy/web/' + name), '%s is a byte copy of deploy/web/' % name)

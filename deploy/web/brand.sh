@@ -68,6 +68,12 @@ install -m 0644 "$B/static/talkchief-room.js" "$ROOT/static/talkchief-room.js"
 ROOM_V=$(sha256sum "$ROOT/static/talkchief-room.js" | cut -c1-12)
 sed -i -E 's#<script src="static/talkchief-room.js[^"]*"></script>##' "$ROOT/index.html"
 sed -i "s#</body>#<script src=\"static/talkchief-room.js?v=${ROOM_V}\"></script></body>#" "$ROOT/index.html"
+# Meet now: the host's Leave asks for a new host or End for everyone
+# (static/talkchief-host-leave.js), loaded at the end of the page.
+install -m 0644 "$B/static/talkchief-host-leave.js" "$ROOT/static/talkchief-host-leave.js"
+LEAVE_V=$(sha256sum "$ROOT/static/talkchief-host-leave.js" | cut -c1-12)
+sed -i -E 's#<script src="static/talkchief-host-leave\.js[^"]*"></script>##g' "$ROOT/index.html"
+sed -i "s#</body>#<script src=\"static/talkchief-host-leave.js?v=${LEAVE_V}\"></script></body>#" "$ROOT/index.html"
 # Error and call-problem reporting (Sentry, project talkchief-meetings): the
 # vendored browser bundle and its setup, loaded first in <head> so start-up
 # errors are caught too. Reports go through /talkchief-sentry (custom-meet.conf).
