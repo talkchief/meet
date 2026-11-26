@@ -38,6 +38,7 @@ function token(room, affiliation, id) {
 async function connect(room, affiliation, id) {
     const url = new URL('ws://prosody:5280/xmpp-websocket');
     url.searchParams.set('room', room);
+    url.searchParams.set('prefix', TENANT); // as the web client sends it (tenant rooms)
     url.searchParams.set('token', token(room, affiliation, id));
     const x = client({ service: url.toString(), domain: 'meet.jitsi' });
     x.on('error', () => {});
@@ -45,6 +46,19 @@ async function connect(room, affiliation, id) {
     x.on('stanza', s => stanzas.push(s));
     await x.start();
     return { x, stanzas, id };
+}
+
+// An anonymous guest on the guest domain, as from an invitation page.
+async function connectGuest(room) {
+    const url = new URL('ws://prosody:5280/xmpp-websocket');
+    url.searchParams.set('room', room);
+    url.searchParams.set('prefix', TENANT);
+    const x = client({ service: url.toString(), domain: 'guest.meet.jitsi' });
+    x.on('error', () => {});
+    const stanzas = [];
+    x.on('stanza', s => stanzas.push(s));
+    await x.start();
+    return { x, stanzas, id: 'guest' };
 }
 
 async function startConference(room) {
@@ -189,6 +203,55 @@ for (const [ label, answer ] of [ [ 'slow', { allow: false, delay: 5 } ], [ 'err
     const r = await join(c, room, 'someone');
     check(`Cowork ${label}: let in (fail open)`, r === 'joined', `${r} after ${Date.now() - t0} ms`);
     await c.x.stop();
+}
+
+// 7. End meeting for all (a moderator's end_conference) -> host_ended.
+{
+    const room = roomName();
+    await meeting(room, { [room]: { allow: true, instant: true } });
+    const host = await connect(room, 'owner', 'host7');
+    const member = await connect(room, 'member', 'member7');
+    await join(host, room, 'host');
+    await join(member, room, 'member');
+    await host.x.send(xml('message', { to: 'endconference.meet.jitsi' }, xml('end_conference')));
+    await sleep(3000);
+    check('End meeting for all ends the room for the member', destroyed(member, room));
+    const end = events().find(e => e.event === 'room_destroyed' && e.room === room);
+    check('room-closed event says host_ended', end?.reason === 'host_ended', JSON.stringify(end));
+    await host.x.stop().catch(() => {}); await member.x.stop().catch(() => {});
+}
+
+// 8. Guests off: the gate tells Cowork the joiner is a guest; a guest is
+//    refused while a member gets in. With guests on, a guest goes on to the
+//    lobby (the gate let them through).
+for (const guestsOff of [ true, false ]) {
+    const room = roomName('g-');
+    await meeting(room, { [room]: { allow: true, instant: true, guests_off: guestsOff } });
+    const host = await connect(room, 'owner', 'host8' + guestsOff);
+    await join(host, room, 'host');
+    const guest = await connectGuest(room);
+    const r = await join(guest, room, 'guest');
+    const asked = events().filter(e => e.event === 'room_check' && e.room === room && e.guest === true);
+    check(`guest check says guest (guests ${guestsOff ? 'off' : 'on'})`, asked.length >= 1, `${asked.length}`);
+    if (guestsOff) {
+        check('guests off: the guest is refused', r === 'not-authorized', r);
+    } else {
+        check('guests on: the gate lets the guest on to the lobby', r !== 'not-authorized', r);
+    }
+    await guest.x.stop().catch(() => {}); await host.x.stop().catch(() => {});
+}
+
+// 9. Cowork doesn't take a room event (restarting): retried 5 s later with
+//    the same nonce.
+{
+    const room = roomName();
+    setRooms({ [room]: { allow: true, fail_events: 1 } });
+    await startConference(room);
+    await sleep(7500);
+    const created = events().filter(e => e.event === 'room_created' && e.room === room);
+    check('room event retried after Cowork failed it', created.length === 2 && created[0].status === 500 && created[1].status === 204,
+        created.map(e => e.status).join(','));
+    check('the retry carries the same nonce', created.length === 2 && created[0].nonce && created[0].nonce === created[1].nonce);
 }
 
 const failed = results.filter(r => !r.ok).length;
