@@ -64,14 +64,6 @@ frontend meet
     # Only HAProxy's own checks carry this header (k8s-pods/meet-shard/k8s/config/custom-meet.conf).
     http-request del-header X-Talkchief-Shard-Check
     option forwardfor
-    # TEMPORARY (P0 2026-11-27; remove once talkchief_cowork #189's image is live): Cowork's
-    # meeting page (/j/<code>, served by Cowork) used to open the desktop app by itself, and a
-    # browser that remembered "always open talkchief links" sent invited people into the app's older
-    # meeting. app=1 tells the page it is already in the app: no app button, no hand-off, the
-    # browser join works. Existing query strings are kept.
-    acl tc_guest_page path_beg /j/
-    http-request set-query %[query]&app=1 if tc_guest_page { query -m found } !{ url_param(app) -m found }
-    http-request set-query app=1 if tc_guest_page !{ query -m found }
     # XMPP for a room: /xmpp-websocket?room=<room>, /http-bind?room=<room>, with an optional tenant
     # prefix (/<tenant>/xmpp-websocket?room=<room>).
     acl xmpp path_end /xmpp-websocket /http-bind
