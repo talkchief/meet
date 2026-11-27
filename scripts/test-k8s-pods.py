@@ -365,6 +365,11 @@ check(sorted(set(servers)) == [('meet-shard-0', 'meet-shard-0.meet.svc.cluster.l
 check(cfg.count('/talkchief-shard-health') >= 3 and cfg.count('uri /http-bind') == 2 and 'inter 2s fall 2' in cfg, 'shard health: Jicofo via web and Prosody BOSH, out after 2 failures in 2 s steps')
 check('monitor-uri /talkchief-haproxy-health' in cfg and 'monitor fail if no_shard' in cfg and 'monitor fail if starting' in cfg,
       'LB check fails with no shard and during the 30 s startup grace')
+check('acl tc_guest_page path_beg /j/' in cfg
+      and 'http-request set-query %[query]&app=1 if tc_guest_page { query -m found } !{ url_param(app) -m found }' in cfg
+      and 'http-request set-query app=1 if tc_guest_page !{ query -m found }' in cfg
+      and cfg.index('tc_guest_page path_beg') < cfg.index('default_backend shards_web'),
+      'TEMPORARY P0 stop-gap: /j/ pages get app=1 (no automatic hand-off to the desktop app) before routing')
 check('peer meet-haproxy-0 @PEER0@:8445' in cfg and 'peer meet-haproxy-1 @PEER1@:8445' in cfg, 'HAProxy peers by pod name on 8445')
 
 # ------------------------------------------------------------------ bridges
