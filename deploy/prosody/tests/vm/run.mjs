@@ -85,7 +85,9 @@ async function join(c, room, nick) {
                 }
                 const codes = (s.getChild('x', 'http://jabber.org/protocol/muc#user')?.getChildren('status') || []).map(st => st.attrs.code);
                 if (codes.includes('110')) {
-                    return 'joined';
+                    // A self-presence of type unavailable is Prosody dropping a joiner that has no
+                    // role (2026-11-27: members after the host in a g- room).
+                    return s.attrs.type === 'unavailable' ? 'dropped' : 'joined';
                 }
             }
         }
@@ -252,6 +254,24 @@ for (const guestsOff of [ true, false ]) {
     check('room event retried after Cowork failed it', created.length === 2 && created[0].status === 500 && created[1].status === 204,
         created.map(e => e.status).join(','));
     check('the retry carries the same nonce', created.length === 2 && created[0].nonce && created[0].nonce === created[1].nonce);
+}
+
+// 10. A member invited into a Meet now (g- room) after the host: the host's arrival switches the
+//     lobby on (members-only); a Cowork member must still join with a role, and the host must see
+//     them (2026-11-27, P0: the member was sent the occupant list and then dropped).
+{
+    const room = roomName('g-');
+    await meeting(room, { [room]: { allow: true, instant: true } });
+    const host = await connect(room, 'owner', 'host10');
+    const member = await connect(room, 'member', 'member10');
+    check('g- room: host joins', await join(host, room, 'host') === 'joined');
+    await sleep(500);
+    const r = await join(member, room, 'member');
+    check('g- room: a member joins after the host (not dropped)', r === 'joined', r);
+    await sleep(500);
+    const seen = host.stanzas.some(s => s.name === 'presence' && s.attrs.from === `${mucJid(room)}/member` && s.attrs.type !== 'unavailable');
+    check('g- room: the host sees the member', seen);
+    await member.x.stop().catch(() => {}); await host.x.stop().catch(() => {});
 }
 
 const failed = results.filter(r => !r.ok).length;
