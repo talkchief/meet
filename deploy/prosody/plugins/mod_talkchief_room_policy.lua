@@ -87,6 +87,14 @@ module:hook('muc-occupant-pre-join', function (event)
     if not affiliation or affiliation == 'none' then
         room:set_affiliation(true, occupant.bare_jid, 'member');
     end
+    -- Prosody gave this occupant its role from the affiliation it had BEFORE this hook (none: no
+    -- role in a members-only room). A member left without a role is sent the occupant list and then
+    -- its own "unavailable": the client sits alone and reports everyone as "left" (2026-11-27, P0:
+    -- invited members "joined a different meeting"). Give it the role its new affiliation has, as
+    -- mod_muc_lobby_rooms does for whitelisted joins.
+    if not occupant.role then
+        occupant.role = room:get_default_role(room:get_affiliation(occupant.bare_jid)) or 'participant';
+    end
 end, -3);
 
 -- After mod_muc_wait_for_host (0) and the lobby gate (-4): a guest who gets here in a
